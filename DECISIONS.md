@@ -4,3 +4,6 @@
 - LLM is Qwen2.5-VL on an OpenAI-compatible endpoint behind LLMProvider; OLLAMA_BASE_URL switches to local.
 - No shadcn init in skeleton: add when the first component needs it.
 - Dev deps: vitest (test runner), zod (schemas at every boundary). @types/node bumped to 22 for vitest peer.
+- tsx dev dep: runs seed/smoke scripts with .env; no build step.
+- policy_chunks.embedding is vector with no dim: Qwen embed dims vary, 16-page PDF needs no index.
+- events append-only enforced by DB trigger, not only by convention.
