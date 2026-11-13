@@ -94,6 +94,7 @@ export interface JourneyDocument {
 }
 
 // ───────────────────────── Policy ─────────────────────────
+// Mirrors seed/profile.json so the rules read policy values straight from it.
 export interface PolicyProfile {
   id: string;
   insurer: string;
@@ -101,13 +102,27 @@ export interface PolicyProfile {
   wordingVersion: string;
   sumInsuredPaise: number;
   policyStart: string;
-  limits: {
-    roomRentPerDayPaise?: number;
-    roomRentPctOfSumInsured?: number; // e.g. 1 → 1% of SI per day
-    intimationDays?: number;
-    waitingPeriods: Array<{ code: string; label: string; months: number; clauseRef: string }>;
+  continuousCoverSince: string;
+  insuredAgeAtEntry: number;
+  roomEntitlement: {
+    bySumInsuredPaise: Array<{ upToPaise: number; category: string; label: string }>;
+    categoryRank: Record<string, number>;
+    clauseRef: string;
   };
-  clauses: { roomRent?: string; waitingPeriods?: string; documents?: string; intimation?: string; sumInsured?: string };
+  waitingPeriods: {
+    initialDays: { days: number; clauseRef: string };
+    specifiedDiseaseMonths: { months: number; clauseRef: string };
+    preExistingMonths: { months: number; clauseRef: string };
+  };
+  specifiedDiseases: Array<{ code: string; match: string[]; label: string }>;
+  copay: { mandatoryAgeAtEntry: number; mandatoryPct: number; clauseRef: string };
+  claimsProcedure: {
+    emergencyNotifyWithinHours: number;
+    plannedNotifyBeforeHours: number;
+    reimbursementSubmitWithinDays: number;
+    clauseRef: string;
+  };
+  documentsClauseRef: string;
 }
 
 export interface PolicyChunk {
@@ -126,12 +141,13 @@ export interface ClauseLookup {
 }
 
 // ───────────────────────── Rules & score ─────────────────────────
-export type Severity = 'blocker' | 'major' | 'minor';
+export type Severity = 'blocker' | 'major' | 'minor' | 'info';
 
 export interface RuleContext {
   extracted: ExtractedData;
   documents: Pick<JourneyDocument, 'kind' | 'extracted'>[];
   policy: PolicyProfile;
+  admission?: { emergency: boolean; admittedAt: string; notifiedAt: string }; // ISO datetimes
   today: string; // ISO date, injected for determinism
 }
 
@@ -155,7 +171,7 @@ export interface Rule {
 export interface ScoreResult {
   score: number;              // 0–100
   breakdown: RuleResult[];    // all rules, passed and failed
-  readyToSubmit: boolean;     // score >= 85 && no failed blocker
+  readyToSubmit: boolean;     // score >= 80 && no failed blocker
   computedAt: string;
 }
 
