@@ -8,7 +8,7 @@ export default rule({
   clauseRefs: () => ["Claim form Part A §D"],
   check: (ctx) => {
     const { bill, dischargeSummary: ds } = ctx.extracted;
-    if (!bill || !ds) return "unknown";
+    if (!bill || !ds || !bill.admissionDate || !bill.dischargeDate || !ds.admissionDate || !ds.dischargeDate) return "unknown";
     const off = (a: string, b: string) => Math.abs(daysBetween(a, b)) > 1;
     if (!off(bill.admissionDate, ds.admissionDate) && !off(bill.dischargeDate, ds.dischargeDate)) return "pass";
     return {

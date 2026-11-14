@@ -40,4 +40,13 @@ describe("document extraction", () => {
     const image = new File([new Uint8Array([0xff, 0xd8, 0xff, 0x00])], "bill.jpg");
     await expect(extractDocument(image, "receipt")).rejects.toThrow("fields could not be verified");
   });
+
+  it("keeps missing bill dates unknown while retaining readable bill data", async () => {
+    vi.stubEnv("OLLAMA_BASE_URL", "");
+    vi.stubEnv("LLM_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai");
+    vi.stubEnv("LLM_MODEL", "demo-model");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify({ ...bill, admissionDate: null, dischargeDate: "" }) }] } }] })));
+    const result = await extractDocument(new File(["%PDF-1.4\nscan"], "scan.pdf"), "bill");
+    expect(result.data).toMatchObject({ admissionDate: "", dischargeDate: "", totalAmountPaise: 4200000 });
+  });
 });

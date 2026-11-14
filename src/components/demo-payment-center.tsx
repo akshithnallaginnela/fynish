@@ -76,25 +76,37 @@ export default function DemoPaymentCenter() {
   }
 
   return <main className="payment-portal">
-    <header className="payment-header"><Link href="/"><Wordmark className="text-3xl" /></Link><span>Fynish simulation</span></header>
-    <section className="payment-content">
-      <p className="payment-eyebrow">SIMULATION CHECKOUT</p>
-      <h1>Pay a merchant.</h1>
-      <p className="payment-lead">Keep Fynish open in another tab. A verified hospital payment can start a claim check there.</p>
-      {!connected ? <div className="payment-card"><h2>Enable payment alerts first</h2><p>Open transaction history in Fynish to enable checkout alerts.</p><Link className="payment-button" href="/transactions">Open transaction history <span>→</span></Link></div> :
-        <div className="payment-card">
-          <label className="payment-label" htmlFor="sample-merchant">Choose a merchant</label>
-          <select id="sample-merchant" value={merchantId} disabled={busy} onChange={(event) => { setMerchantId(event.target.value as DemoMerchantId); setPaid(false); setPendingReply(null); setNotice(""); }}>
-            <option value="hospital">Apollo Hospitals · ₹42,000</option>
-            <option value="store">City Market · ₹500</option>
-          </select>
-          <div className="payment-summary"><span>Amount</span><strong>₹{(merchant.amountPaise / 100).toLocaleString("en-IN")}</strong></div>
-          <button type="button" className="payment-button" disabled={busy} onClick={() => void pay()}>{verifying ? "Verifying payment…" : busy ? "Opening checkout…" : "Continue to payment"} <span>→</span></button>
-          <p className="payment-note">Simulation only. Enter card details in the payment provider’s hosted checkout; Fynish does not receive card numbers or move real money.</p>
-          {merchantId === "hospital" && <p className="payment-note"><a href="/demo/apollo-sample-bill.pdf" download>Download the sample hospital bill</a>. It is not attached automatically and cannot be used for a real claim.</p>}
-          {paid && <p className="payment-success" role="status">{merchant.category === "hospital" ? "Payment verified. Check the open Fynish tab for your alert." : "Payment verified. It will appear in transaction history without a hospital alert."}</p>}
-          {notice && <p className="payment-error" role="alert">{notice}</p>}
-          {pendingReply && !busy && <button type="button" className="payment-button" onClick={() => void verifyPayment(pendingReply)}>Retry verification <span>→</span></button>}
+    <header className="payment-header"><Link href="/"><Wordmark className="text-3xl" /></Link><Link href="/transactions">Transaction history ↗</Link></header>
+    <section className="payment-content merchant-content">
+      <div className="merchant-intro"><div><p className="payment-eyebrow">MERCHANT PAYMENTS</p><h1>Make a payment</h1><p className="payment-lead">Choose a merchant and continue to Razorpay checkout.</p></div><span className="merchant-mode">Simulation</span></div>
+      {!connected ? <div className="payment-card"><h2>Enable payment alerts first</h2><p>Turn on checkout alerts in transaction history to continue.</p><Link className="payment-button" href="/transactions">Open transaction history <span>→</span></Link></div> :
+        <div className="merchant-layout">
+          <div className="payment-card merchant-selection">
+            <div className="merchant-section-heading"><div><p className="merchant-step">01 / MERCHANT</p><h2>Who are you paying?</h2><p>Select a merchant to see the payment details.</p></div></div>
+            <fieldset className="merchant-options" disabled={busy}>
+              <legend className="sr-only">Choose a merchant</legend>
+              {(Object.values(DEMO_MERCHANTS)).map((item) => <label key={item.id} className={`merchant-option ${merchantId === item.id ? "is-selected" : ""}`}>
+                <input type="radio" name="merchant" value={item.id} checked={merchantId === item.id} onChange={() => { setMerchantId(item.id); setPaid(false); setPendingReply(null); setNotice(""); }} />
+                <span className="merchant-option-icon" aria-hidden="true">{item.category === "hospital" ? <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 20V8h16v12M9 8V4h6v4M2 20h20M12 11v6m-3-3h6" /></svg> : <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 10v10h16V10M3 10l2-6h14l2 6M3 10c0 2 3 2 3 0 0 2 3 2 3 0 0 2 3 2 3 0 0 2 3 2 3 0 0 2 3 2 3 0 0 2 3 2 3 0M9 20v-6h6v6" /></svg>}</span>
+                <span className="merchant-option-copy"><strong>{item.name}</strong><small>{item.category === "hospital" ? "Hospital" : "Retail store"}</small></span>
+                <span className="merchant-option-amount">₹{(item.amountPaise / 100).toLocaleString("en-IN")}</span>
+                <span className="merchant-radio" aria-hidden="true" />
+              </label>)}
+            </fieldset>
+            {merchantId === "hospital" && <p className="merchant-bill-link"><a href="/demo/apollo-sample-bill.pdf" download>Download the sample hospital bill</a><span>Attach it separately in chat for a claim check.</span></p>}
+          </div>
+          <aside className="payment-card merchant-review" aria-label="Payment summary">
+            <p className="merchant-step">02 / REVIEW</p><h2>Payment details</h2>
+            <div className="merchant-review-row"><span>Paying</span><strong>{merchant.name}</strong></div>
+            <div className="merchant-review-row"><span>Payment type</span><strong>{merchant.category === "hospital" ? "Hospital bill" : "Merchant purchase"}</strong></div>
+            <div className="merchant-total"><span>Total amount</span><strong>₹{(merchant.amountPaise / 100).toLocaleString("en-IN")}</strong></div>
+            <button type="button" className="payment-button" disabled={busy} onClick={() => void pay()}>{verifying ? "Verifying payment…" : busy ? "Opening checkout…" : "Continue to payment"} <span aria-hidden="true">→</span></button>
+            <p className="merchant-security"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3m-4 4v3" /></svg><span>Payment details are entered in Razorpay’s hosted checkout.</span></p>
+            <p className="merchant-disclosure">Simulation only. No real money moves, and Fynish does not receive card numbers.</p>
+            {paid && <p className="payment-success" role="status">{merchant.category === "hospital" ? "Payment verified. Check the open Fynish tab for your alert." : "Payment verified. It will appear in transaction history without a hospital alert."}</p>}
+            {notice && <p className="payment-error" role="alert">{notice}</p>}
+            {pendingReply && !busy && <button type="button" className="payment-button" onClick={() => void verifyPayment(pendingReply)}>Retry verification <span>→</span></button>}
+          </aside>
         </div>}
     </section>
   </main>;

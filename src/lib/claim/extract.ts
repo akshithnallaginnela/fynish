@@ -101,14 +101,19 @@ export async function extractDocument(file: File, kind: "bill" | "discharge" | "
   if (!jsonText) throw new ExtractionError(422, "The document could not be read. Upload a clearer copy.");
   let value: unknown;
   try { value = JSON.parse(jsonText); } catch { throw new ExtractionError(422, "The document could not be read. Upload a clearer copy."); }
+  // A hospital bill may omit admission or discharge dates. Preserve that as
+  // unknown rather than rejecting an otherwise readable document or guessing.
+  if (kind === "bill" && value && typeof value === "object" && !Array.isArray(value)) {
+    const fields = value as Record<string, unknown>;
+    for (const key of ["admissionDate", "dischargeDate"]) {
+      if (typeof fields[key] !== "string" || !validDate(fields[key])) fields[key] = "";
+    }
+  }
   const schema = kind === "bill" ? HospitalBill : kind === "discharge" ? DischargeSummary : PaymentReceipt;
   const checked = schema.safeParse(value);
   if (!checked.success) throw new ExtractionError(422, "The document fields could not be verified. Upload a clearer copy.");
   if (kind === "bill") {
     const bill = HospitalBill.parse(checked.data);
-    if (!validDate(bill.admissionDate) || !validDate(bill.dischargeDate)) {
-      throw new ExtractionError(422, "The bill dates could not be verified. Upload a clearer copy.");
-    }
     if (bill.totalAmountPaise <= 0 || bill.lineItems.some((item) => item.amountPaise < 0) || (bill.roomRentPerDayPaise !== null && bill.roomRentPerDayPaise < 0)) {
       throw new ExtractionError(422, "The bill amounts could not be verified.");
     }

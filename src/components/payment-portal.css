@@ -29,4 +29,38 @@
 .payment-history-list strong { font-size: 14px; }
 .payment-history-list small { margin-top: 5px; color: #6a7590; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
 .payment-history-list b { white-space: nowrap; font-size: 14px; }
+.merchant-content { width: min(960px, calc(100% - 40px)); margin-top: clamp(35px, 7vh, 76px); }
+.merchant-intro { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
+.merchant-intro h1 { margin-top: 12px; font-size: clamp(2.2rem, 5vw, 3.25rem); }
+.merchant-intro .payment-lead { margin-top: 12px; }
+.merchant-mode { flex: none; border: 1px solid var(--line); border-radius: 999px; background: var(--card); padding: 7px 12px; color: var(--ink-2); font-size: 12px; font-weight: 700; }
+.merchant-layout { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(270px, .8fr); align-items: start; gap: 18px; }
+.merchant-layout .payment-card { margin-top: 28px; }
+.merchant-step { margin: 0 0 10px !important; color: var(--blue) !important; font-size: 11px !important; font-weight: 800; letter-spacing: .07em; }
+.merchant-section-heading p:last-child { margin-top: 8px; color: var(--ink-2); font-size: 13px; line-height: 1.6; }
+.merchant-options { display: grid; gap: 10px; min-width: 0; margin: 24px 0 0; padding: 0; border: 0; }
+.merchant-option { position: relative; display: flex; min-width: 0; align-items: center; gap: 12px; border: 1px solid var(--line); border-radius: 13px; background: white; padding: 14px; cursor: pointer; }
+.merchant-option.is-selected { border-color: var(--blue); background: #f7f7ff; }
+.merchant-option:focus-within { outline: 2px solid var(--blue); outline-offset: 3px; }
+.merchant-option input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.merchant-option-icon { display: grid; width: 42px; height: 42px; flex: none; place-items: center; border-radius: 12px; background: var(--blue-tint); color: var(--blue); }
+.merchant-option-icon svg { width: 21px; height: 21px; }
+.merchant-option-copy { min-width: 0; flex: 1; }
+.merchant-option-copy strong, .merchant-option-copy small { display: block; }
+.merchant-option-copy strong { font-size: 14px; }
+.merchant-option-copy small { margin-top: 4px; color: var(--ink-3); font-size: 12px; }
+.merchant-option-amount { flex: none; font-size: 13px; font-weight: 750; white-space: nowrap; }
+.merchant-radio { width: 17px; height: 17px; flex: none; border: 1.5px solid var(--line-edge); border-radius: 50%; }
+.is-selected .merchant-radio { border: 5px solid var(--blue); background: white; }
+.merchant-bill-link { margin-top: 20px !important; border-top: 1px solid var(--line); padding-top: 16px; font-size: 12px !important; }
+.merchant-bill-link a { color: var(--blue); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+.merchant-bill-link span { display: block; margin-top: 4px; color: var(--ink-3); }
+.merchant-review-row { display: flex; justify-content: space-between; gap: 16px; margin-top: 20px; color: var(--ink-2); font-size: 13px; }
+.merchant-review-row strong { color: var(--ink); font-weight: 700; text-align: right; }
+.merchant-total { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-top: 22px; border-top: 1px solid var(--line); padding-top: 20px; font-size: 13px; font-weight: 700; }
+.merchant-total strong { font-size: 26px; letter-spacing: -.03em; }
+.merchant-security { display: flex; align-items: flex-start; gap: 8px; color: var(--ink-2); font-size: 12px !important; line-height: 1.5; }
+.merchant-security svg { width: 16px; height: 16px; flex: none; margin-top: 1px; }
+.merchant-disclosure { color: var(--ink-3) !important; font-size: 12px !important; line-height: 1.5; }
+@media (max-width: 700px) { .merchant-layout { grid-template-columns: 1fr; gap: 12px; } .merchant-layout .merchant-review { margin-top: 0; } }
 @media (max-width: 600px) { .payment-header { padding: 18px 20px; } .payment-content { margin-top: 42px; } }

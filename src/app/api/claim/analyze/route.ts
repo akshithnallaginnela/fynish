@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { db } from "@/lib/db";
 import { assessBill } from "@/lib/claim/assessment";
 import { extractDocument, ExtractionError } from "@/lib/claim/extract";
-import { getSelectedPolicyForRequest } from "@/lib/provider/server";
+import { getSelectedPolicyForRequest, ProviderError } from "@/lib/provider/server";
 import { sameOrigin } from "@/lib/provider/http";
 import { hdfcDemoClauses } from "@/policy/hdfc-demo";
 import { lookup } from "@/policy/lookup";
@@ -153,6 +153,12 @@ export async function POST(request: Request) {
     }
   } catch (error) {
     if (error instanceof ExtractionError) return Response.json({ error: error.message }, { status: error.status });
+    if (error instanceof ProviderError && error.code === "connection_expired") {
+      return Response.json({ error: "Your insurance connection expired. Reconnect your insurer and select a policy.", code: error.code }, { status: 409 });
+    }
+    if (error instanceof ProviderError) {
+      return Response.json({ error: "The insurance connection is unavailable. Please try again shortly.", code: error.code }, { status: 503 });
+    }
     return Response.json({ error: "Could not load the selected policy. Reconnect the provider and try again." }, { status: 502 });
   }
 }

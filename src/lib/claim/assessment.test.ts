@@ -53,6 +53,13 @@ describe("claim amount assessment", () => {
     expect(result.readiness.breakdown.find((item) => item.ruleId === "R-DOC-RECEIPT-MISSING")?.passed).toBe(false);
   });
 
+  it("does not estimate a claim when admission dates and supporting documents are missing", () => {
+    const result = assessBill({ bill: { ...bill, admissionDate: "", dischargeDate: "" }, policy, remainingBalancePaise: 28_000_000, today: "2026-11-13" });
+    expect(result.readiness.breakdown.find((item) => item.ruleId === "R-INITIAL-WAIT")?.passed).toBeNull();
+    expect(result.amountSummary.estimatedPayablePaise).toBeNull();
+    expect(result.warnings).toContain("The bill does not show all admission and discharge dates. Provide a discharge summary to check the missing dates.");
+  });
+
   it("recognizes plural medical bill labels and estimates the payable amount", () => {
     const result = assessBill({
       bill: { ...bill, lineItems: [{ label: "Medicines", amountPaise: 200_000 }, { label: "Diagnostics", amountPaise: 1_010_000 }] },

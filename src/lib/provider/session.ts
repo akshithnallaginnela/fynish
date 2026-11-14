@@ -39,6 +39,16 @@ export function setSessionCookie(response: NextResponse, id: string) {
   });
 }
 
+export function clearSessionCookie(response: NextResponse) {
+  response.cookies.set(SESSION_COOKIE, "", {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: 0,
+  });
+}
+
 export function readAuthCookie(request: Request) {
   const value = cookieValue(request, AUTH_COOKIE);
   if (!value) return null;

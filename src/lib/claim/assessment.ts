@@ -79,6 +79,9 @@ export function assessBill(args: {
   });
   const warnings: string[] = [];
   if (policy.provider !== "star") warnings.push("HDFC ERGO wording is synthetic and may not match a real policy.");
+  if (!bill.admissionDate || !bill.dischargeDate) warnings.push(dischargeSummary
+    ? "The bill does not show all admission and discharge dates. Check the dates in the discharge summary."
+    : "The bill does not show all admission and discharge dates. Provide a discharge summary to check the missing dates.");
   warnings.push("Pre-existing condition history needs insurer or human review.");
   if (bill.confidence < 0.8) warnings.push("Bill extraction needs a clearer document or manual review.");
   const itemTotalPaise = items.reduce((sum, item) => sum + item.amountPaise, 0);

@@ -6,13 +6,15 @@ import Mark from "@/components/mark";
 import Wordmark from "@/components/wordmark";
 import ClaimFlow from "@/components/claim-flow";
 import TransactionHistory from "@/components/transaction-history";
+import AccountSettings, { logoutAccount } from "@/components/account-settings";
+import type { BankTransaction } from "@/components/simulated-bank-connect";
 import CursorBackground from "@/components/cursor-background";
 import { useSarvamVoice, VoicePlayback, type VoiceLanguage, type VoiceScript } from "@/components/voice-controls";
 import { ONBOARDING_KEY } from "@/lib/onboarding";
 
-type Message = { id: string; role: "user" | "assistant"; text: string; voiceLanguage?: VoiceLanguage; attachment?: { name: string }; failed?: boolean };
+type Message = { id: string; role: "user" | "assistant"; text: string; voiceLanguage?: VoiceLanguage; attachment?: { name: string }; failed?: boolean; systemChoice?: boolean };
 type PaymentSignal = { orderId: string; hospitalName: string; amountPaise: number; paymentId: string | null; method: string | null; paidAt: string | null; seen: boolean; isHospital: boolean };
-type Conversation = { id: string; title: string; messages: Message[]; paymentOrderId?: string; journeyId?: string };
+type Conversation = { id: string; title: string; messages: Message[]; paymentOrderId?: string; journeyId?: string; saved?: boolean; pinned?: boolean };
 const CHAT_HISTORY_KEY = "fynish.chats";
 
 const SUGGESTIONS = ["What does health insurance usually cover?", "How does a reimbursement claim work?", "What should I check before buying a policy?"];
@@ -39,6 +41,18 @@ function languageOf(text: string) {
   return "en";
 }
 
+function transactionCopy(messages: Message[]) {
+  const first = messages.find((message) => message.role === "user" && !message.systemChoice)?.text ?? "";
+  const language = languageOf(first);
+  if (language === "te") return /[\u0C00-\u0C7F]/u.test(first)
+    ? { question: "మీరు వ్యాపారుల చెల్లింపులు, లావాదేవీలను ఇక్కడ చూడాలనుకుంటున్నారా?", yes: "అవును", no: "వద్దు", next: "సరే, అనుకరణ బ్యాంక్ ఖాతాను కనెక్ట్ చేద్దాం.", cancel: "సరే, మీరు కోరినప్పుడు సెటప్ చేయవచ్చు." }
+    : { question: "Mee merchant payments mariyu transactions ikkada manage cheyyalanukuntunnara?", yes: "Avunu", no: "Vaddu", next: "Sare, simulated bank account connect chesukundam.", cancel: "Sare, meeku kavali anukunnappudu setup cheyyachu." };
+  if (language === "hi") return /[\u0900-\u097F]/u.test(first)
+    ? { question: "क्या आप यहाँ मर्चेंट भुगतान और लेनदेन देखना चाहेंगे?", yes: "हाँ", no: "नहीं", next: "ठीक है, सिमुलेटेड बैंक खाता जोड़ते हैं।", cancel: "ठीक है, आप बाद में सेट कर सकते हैं।" }
+    : { question: "Kya aap yahan merchant payments aur transactions dekhna chahenge?", yes: "Haan", no: "Nahi", next: "Theek hai, simulated bank account connect karte hain.", cancel: "Theek hai, aap baad mein setup kar sakte hain." };
+  return { question: "Would you like to manage your merchant payments and transactions here?", yes: "Yes", no: "No", next: "Sure, let's connect a simulated bank account.", cancel: "Okay, you can set this up whenever you need it." };
+}
+
 function voiceLanguageFor(messages: Message[], index: number): VoiceLanguage {
   const answerLanguage = languageOf(messages[index]?.text ?? "");
   const question = messages.slice(0, index).reverse().find((message) => message.role === "user");
@@ -59,6 +73,45 @@ function failureText(text: string) {
   if (language === "te") return /[\u0C00-\u0C7F]/u.test(text) ? "ఇప్పుడు సమాధానం ఇవ్వలేకపోయాను. మళ్లీ ప్రయత్నించండి." : "Ippudu samadhanam ivvalekapoyanu. Malli try cheyyandi.";
   if (language === "hi") return /[\u0900-\u097F]/u.test(text) ? "अभी जवाब नहीं दे पाया। कृपया फिर कोशिश करें।" : "Abhi jawab nahi de paya. Phir koshish karein.";
   return "I couldn't answer just now. Please try again.";
+}
+
+function billFailureText(status: number, detail: string, reference: string, code = "") {
+  const kind = code === "connection_expired" ? "expired" : code === "provider_unavailable" || code === "provider_api_error" ? "provider" : status === 409 || (/policy/i.test(detail) && /reconnect/i.test(detail)) ? "policy" : status === 413 ? "size" : status === 415 ? "format"
+    : status >= 500 || status === 0 ? "service" : /date/i.test(detail) ? "dates" : "document";
+  const language = languageOf(reference);
+  const native = language === "te" ? /[\u0C00-\u0C7F]/u.test(reference) : /[\u0900-\u097F]/u.test(reference);
+  const messages = language === "te" ? native ? {
+    policy: "ముందుగా మీ ఇన్సూరెన్స్ పాలసీని కనెక్ట్ చేసి ఎంచుకోండి. ఫైల్ అలాగే ఉంటుంది.",
+    expired: "మీ ఇన్సూరెన్స్ సెషన్ ముగిసింది. ప్రొవైడర్‌ను మళ్లీ కనెక్ట్ చేసి ప్రయత్నించండి.",
+    provider: "ఇన్సూరెన్స్ ప్రొవైడర్ ప్రస్తుతం అందుబాటులో లేరు. కాసేపటి తర్వాత మళ్లీ ప్రయత్నించండి.",
+    size: "10 MB లోపు ఖాళీగా లేని ఫైల్‌ను ఎంచుకోండి.",
+    format: "JPEG, PNG, WebP చిత్రం లేదా PDF ఎంచుకోండి.",
+    dates: "బిల్లులో తేదీలు చదవలేకపోయాను. తేదీలు కనిపించే కాపీని ఎంచుకోండి.",
+    document: "బిల్లు చదవలేకపోయాను. స్పష్టమైన చిత్రం లేదా PDFతో మళ్లీ ప్రయత్నించండి.",
+    service: "ప్రస్తుతం బిల్లును పరిశీలించే సేవ అందుబాటులో లేదు. ఫైల్ అలాగే ఉంది; కాసేపటి తర్వాత మళ్లీ ప్రయత్నించండి.",
+  } : {
+    policy: "Munduga mee insurance policy ni connect chesi select cheyyandi. File alage untundi.",
+    expired: "Mee insurance session expire ayyindi. Provider ni malli connect chesi try cheyyandi.",
+    provider: "Insurance provider ippudu available ledu. Kasepati tarvata malli try cheyyandi.",
+    size: "10 MB lopu unna file ni select cheyyandi.",
+    format: "JPEG, PNG, WebP image leda PDF select cheyyandi.",
+    dates: "Bill lo dates chadavalekapoyanu. Dates kanipinche copy select cheyyandi.",
+    document: "Bill chadavalekapoyanu. Clear image leda PDF tho malli try cheyyandi.",
+    service: "Bill check chese service ippudu available ledu. File alage undi; kasepati tarvata malli try cheyyandi.",
+  } : language === "hi" ? native ? {
+    policy: "पहले अपनी बीमा पॉलिसी कनेक्ट करके चुनें। फ़ाइल लगी रहेगी।", expired: "बीमा सत्र समाप्त हो गया है। प्रदाता को फिर से कनेक्ट करें।", provider: "बीमा प्रदाता अभी उपलब्ध नहीं है। थोड़ी देर बाद कोशिश करें।", size: "10 MB से छोटी फ़ाइल चुनें।",
+    format: "JPEG, PNG, WebP तस्वीर या PDF चुनें।", dates: "बिल की तारीखें पढ़ नहीं पाया। तारीखें दिखने वाली प्रति चुनें।",
+    document: "बिल पढ़ नहीं पाया। साफ़ तस्वीर या PDF से फिर कोशिश करें।", service: "बिल जाँच सेवा अभी उपलब्ध नहीं है। फ़ाइल लगी है; थोड़ी देर बाद फिर कोशिश करें।",
+  } : {
+    policy: "Pehle apni insurance policy connect karke select karein. File lagi rahegi.", expired: "Insurance session expire ho gaya. Provider ko phir connect karein.", provider: "Insurance provider abhi available nahi hai. Thodi der baad koshish karein.", size: "10 MB se chhoti file select karein.",
+    format: "JPEG, PNG, WebP image ya PDF select karein.", dates: "Bill ki dates padh nahi paya. Dates dikhne wali copy select karein.",
+    document: "Bill padh nahi paya. Clear image ya PDF ke saath phir koshish karein.", service: "Bill check karne ki service abhi available nahi hai. File lagi hai; thodi der baad phir koshish karein.",
+  } : {
+    policy: "Please connect and select your insurance policy first. Your file will stay attached.", expired: "Your insurance session has expired. Reconnect your provider and try again.", provider: "Your insurance provider is temporarily unavailable. Please try again shortly.", size: "Please choose a non-empty file smaller than 10 MB.",
+    format: "Please choose a JPEG, PNG, WebP image or PDF.", dates: "I couldn't read the bill dates. Please choose a copy where they are visible.",
+    document: "I couldn't read the bill. Please try again with a clear image or PDF.", service: "The bill checking service is unavailable right now. Your file is still attached; please try again shortly.",
+  };
+  return messages[kind];
 }
 
 function createId() {
@@ -83,12 +136,19 @@ export default function Home() {
   const [currentChatId, setCurrentChatId] = useState("");
   const [activePaymentOrderId, setActivePaymentOrderId] = useState("");
   const [activeJourneyId, setActiveJourneyId] = useState("");
-  const [inlineView, setInlineView] = useState<"provider" | "transactions" | null>(null);
+  const [inlineView, setInlineView] = useState<"provider" | "transactions" | "account" | null>(null);
+  const [transactionPromptId, setTransactionPromptId] = useState("");
   const chatSnapshot = useRef({ id: "", messages: [] as Message[], paymentOrderId: "", journeyId: "" });
   const [historyOverride, setHistoryOverride] = useState<Conversation[] | null>(null);
+  const [showSavedChats, setShowSavedChats] = useState(false);
+  const [historyStorageError, setHistoryStorageError] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState("");
+  const [signOutPartial, setSignOutPartial] = useState(false);
   const savedHistory = useSyncExternalStore(subscribeToProfile, readChatHistory, () => "[]");
   const conversations = historyOverride ?? parseChatHistory(savedHistory);
   const [paymentSignals, setPaymentSignals] = useState<PaymentSignal[]>([]);
+  const [bankConnected, setBankConnected] = useState(false);
   const [busy, setBusy] = useState(false);
   const [voiceLanguage, setVoiceLanguage] = useState<VoiceLanguage>("en-IN");
   const [voiceScript, setVoiceScript] = useState<VoiceScript>("native");
@@ -119,10 +179,56 @@ export default function Home() {
   const menuButton = useRef<HTMLButtonElement>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
 
+  useEffect(() => {
+    let active = true;
+    const refresh = () => {
+      fetch("/api/bank/session", { cache: "no-store" }).then((response) => response.ok ? response.json() : null)
+        .then((result) => { if (active) setBankConnected(result?.connected === true); })
+        .catch(() => { if (active) setBankConnected(false); });
+    };
+    refresh();
+    window.addEventListener("fynish:bank-connection-changed", refresh);
+    return () => { active = false; window.removeEventListener("fynish:bank-connection-changed", refresh); };
+  }, []);
+
   const saveConversation = (conversation: Conversation) => {
-    const updated = [conversation, ...parseChatHistory(readChatHistory()).filter((item) => item.id !== conversation.id)].slice(0, 30);
+    const stored = parseChatHistory(readChatHistory());
+    const previous = stored.find((item) => item.id === conversation.id) ?? historyOverride?.find((item) => item.id === conversation.id);
+    const existing = stored.length ? stored : historyOverride ?? [];
+    let regularCount = 0;
+    const updated = [{ ...previous, ...conversation }, ...existing.filter((item) => item.id !== conversation.id)]
+      .filter((item) => item.saved || item.pinned || regularCount++ < 30);
     setHistoryOverride(updated);
-    try { localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(updated)); } catch { /* Keep this session usable. */ }
+    try { localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(updated)); setHistoryStorageError(false); }
+    catch { setHistoryStorageError(true); }
+  };
+
+  const toggleChatFlag = (id: string, flag: "saved" | "pinned") => {
+    const updated = conversations.map((item) => item.id === id ? { ...item, [flag]: !item[flag] } : item);
+    setHistoryOverride(updated);
+    try { localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(updated)); setHistoryStorageError(false); }
+    catch { setHistoryStorageError(true); }
+  };
+
+  const signOut = async () => {
+    if (signingOut || busy) return;
+    setSigningOut(true);
+    setSignOutError("");
+    setSignOutPartial(false);
+    try {
+      const result = await logoutAccount();
+      if (result === "complete") {
+        window.dispatchEvent(new Event("storage"));
+        router.replace("/welcome");
+      } else if (result === "provider-revocation-failed") {
+        setSignOutPartial(true);
+        setSignOutError("Signed out on this device, but the insurer connection could not be revoked. Please contact support.");
+      } else {
+        setSignOutError("Signed out of the session, but the profile could not be removed. Clear this site's stored data in your browser settings.");
+      }
+    } catch {
+      setSignOutError("Sign out could not finish. Check your connection and try again.");
+    } finally { setSigningOut(false); }
   };
 
   const newConversation = () => {
@@ -131,6 +237,7 @@ export default function Home() {
     setActivePaymentOrderId("");
     setActiveJourneyId("");
     setInlineView(null);
+    setTransactionPromptId("");
     setMessages([]);
     setAttachment(null);
     setUploadMenu(false);
@@ -143,18 +250,32 @@ export default function Home() {
     requestAnimationFrame(() => menuButton.current?.focus());
   };
 
-  const openInline = (view: "provider" | "transactions") => {
+  const openInline = (view: "provider" | "transactions" | "account") => {
     if (busy) return;
-    setInlineView(view);
-    if (!messages.length) {
-      const chatId = currentChatId || createId();
-      const text = view === "provider" ? "Let's look at your insurance connection." : "Here are your transaction alerts.";
-      const intro: Message = { id: createId(), role: "assistant", text };
-      setCurrentChatId(chatId);
-      setMessages([intro]);
-      saveConversation({ id: chatId, title: view === "provider" ? "Insurance provider" : "Transaction history", messages: [intro] });
-    }
+    const chatId = currentChatId || createId();
+    const askFirst = view === "transactions" && !bankConnected;
+    const text = view === "provider" ? "Let's look at your insurance connection." : view === "account" ? "Here are your account settings." : askFirst ? transactionCopy(messages).question : "Here are your transaction alerts.";
+    const intro: Message = { id: createId(), role: "assistant", text };
+    const nextMessages = [...messages, intro];
+    setCurrentChatId(chatId);
+    setMessages(nextMessages);
+    setTransactionPromptId(askFirst ? intro.id : "");
+    setInlineView(askFirst ? null : view);
+    const title = conversations.find((item) => item.id === chatId)?.title ?? (view === "provider" ? "Insurance provider" : view === "account" ? "Account settings" : "Transaction history");
+    saveConversation({ id: chatId, title, messages: nextMessages, ...(activeJourneyId ? { journeyId: activeJourneyId } : {}), ...(activePaymentOrderId ? { paymentOrderId: activePaymentOrderId } : {}) });
     if (menu) closeMenu();
+  };
+
+  const answerTransactionPrompt = (accepted: boolean, fromTyped = false) => {
+    const copy = transactionCopy(messages);
+    const chatId = currentChatId || createId();
+    const nextMessages: Message[] = [...messages, { id: createId(), role: "user", text: accepted ? copy.yes : copy.no, systemChoice: true }, { id: createId(), role: "assistant", text: accepted ? copy.next : copy.cancel }];
+    setTransactionPromptId("");
+    setMessages(nextMessages);
+    if (fromTyped) setDraft("");
+    setInlineView(accepted ? "transactions" : null);
+    const title = conversations.find((item) => item.id === chatId)?.title ?? "Transaction history";
+    saveConversation({ id: chatId, title, messages: nextMessages, ...(activeJourneyId ? { journeyId: activeJourneyId } : {}), ...(activePaymentOrderId ? { paymentOrderId: activePaymentOrderId } : {}) });
   };
 
   const onboarded = useSyncExternalStore(
@@ -186,7 +307,7 @@ export default function Home() {
 
   useEffect(() => {
     messagesEnd.current?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
-  }, [messages, busy]);
+  }, [messages, busy, inlineView, transactionPromptId]);
 
   useEffect(() => {
     const latest = [...messages].reverse().find((message) => message.role === "user")?.text ?? draft;
@@ -208,12 +329,17 @@ export default function Home() {
   const send = async (raw: string) => {
     const text = raw.trim();
     if (!text || busy || listening || transcribing) return;
+    if (transactionPromptId) {
+      if (/^(yes|yeah|yep|sure|ok|okay|avunu|haa|haan|ha|हाँ|हां|అవును)[.!\s]*$/iu.test(text)) { answerTransactionPrompt(true, true); return; }
+      if (/^(no|nope|vaddu|nahi|nahiin|nahin|नहीं|వద్దు)[.!\s]*$/iu.test(text)) { answerTransactionPrompt(false, true); return; }
+      setTransactionPromptId("");
+    }
     const userMessage: Message = { id: createId(), role: "user", text, ...(inputVoiceLanguage.current ? { voiceLanguage: inputVoiceLanguage.current } : {}), ...(attachment ? { attachment: { name: attachment.name } } : {}) };
     inputVoiceLanguage.current = null;
     const assistantMessage: Message = { id: createId(), role: "assistant", text: "" };
     const chatId = currentChatId || createId();
     if (!currentChatId) setCurrentChatId(chatId);
-    const firstUser = [...messages, userMessage].find((message) => message.role === "user")!;
+    const firstUser = [...messages, userMessage].find((message) => message.role === "user" && !message.systemChoice)!;
     const detectedLanguage = languageOf(firstUser.text);
     const language = detectedLanguage === "en" && firstUser.voiceLanguage ? firstUser.voiceLanguage.slice(0, 2) : detectedLanguage;
     const script = language === "te" ? (/[\u0C00-\u0C7F]/u.test(firstUser.text) ? "native" : "roman") : language === "hi" ? (/[\u0900-\u097F]/u.test(firstUser.text) ? "native" : "roman") : "native";
@@ -233,17 +359,14 @@ export default function Home() {
         const form = new FormData();
         form.set("bill", attachment);
         if (activePaymentOrderId) form.set("paymentOrderId", activePaymentOrderId);
+        uploadError = billFailureText(0, "", firstUser.text);
         const result = await fetch("/api/claim/analyze", { method: "POST", body: form });
         if (!result.ok) {
-          uploadError = result.status === 409
-            ? (language === "te" ? (script === "native" ? "ముందుగా మీ ఇన్సూరెన్స్ పాలసీని కనెక్ట్ చేసి ఎంచుకోండి." : "Munduga mee insurance policy ni connect chesi select cheyyandi.") : language === "hi" ? (script === "native" ? "पहले अपनी बीमा पॉलिसी कनेक्ट करके चुनें।" : "Pehle apni insurance policy connect karke select karein.") : "Please connect and select your insurance policy first.")
-            : result.status === 413
-              ? (language === "te" ? (script === "native" ? "10 MB కంటే చిన్న ఫైల్‌ను ఎంచుకోండి." : "10 MB kante chinna file ni select cheyyandi.") : language === "hi" ? (script === "native" ? "10 MB से छोटी फ़ाइल चुनें।" : "10 MB se chhoti file select karein.") : "Please choose a file smaller than 10 MB.")
-            : result.status < 500
-              ? (language === "te" ? (script === "native" ? "బిల్ చదవలేకపోయాను. స్పష్టమైన చిత్రం లేదా PDFతో మళ్లీ ప్రయత్నించండి." : "Bill chadavalekapoyanu. Clear image leda PDF tho malli try cheyyandi.") : language === "hi" ? (script === "native" ? "बिल पढ़ नहीं पाया। साफ़ तस्वीर या PDF के साथ फिर कोशिश करें।" : "Bill padh nahi paya. Clear image ya PDF ke saath phir koshish karein.") : "I couldn't read the bill. Please try again with a clear image or PDF.")
-              : failureText(firstUser.text);
+          const body = await result.json().catch(() => ({})) as { error?: string; code?: string };
+          uploadError = billFailureText(result.status, typeof body.error === "string" ? body.error : "", firstUser.text, body.code);
           throw new Error("bill upload failed");
         }
+        uploadError = "";
         const analysis: { journeyId?: string } = await result.json();
         if (!analysis.journeyId) throw new Error("bill analysis unavailable");
         journeyId = analysis.journeyId;
@@ -270,6 +393,7 @@ export default function Home() {
     } catch {
       failed = true;
       answer = uploadError || failureText(firstUser.text);
+      setDraft((current) => current.trim() ? current : text);
       setMessages((current) => current.map((message) => message.id === assistantMessage.id ? { ...message, text: answer, failed: true } : message));
     } finally {
       const nextMessages = [...messages, userMessage, { ...assistantMessage, text: answer, ...(failed ? { failed: true } : {}) }];
@@ -288,6 +412,7 @@ export default function Home() {
     setActivePaymentOrderId(signal.orderId);
     setActiveJourneyId("");
     setInlineView(null);
+    setTransactionPromptId("");
     setAttachment(null);
     setMessages([intro]);
     saveConversation({ id: chatId, title: `${signal.hospitalName} payment`, messages: [intro], paymentOrderId: signal.orderId });
@@ -344,6 +469,17 @@ export default function Home() {
     </div>
   );
 
+  const sidebarConversations = showSavedChats ? conversations.filter((item) => item.saved) : conversations;
+  const pinnedConversations = sidebarConversations.filter((item) => item.pinned);
+  const otherConversations = sidebarConversations.filter((item) => !item.pinned);
+  const chatRow = (conversation: Conversation) => (
+    <div key={conversation.id} className="flex min-w-0 items-center gap-0.5">
+      <button type="button" disabled={busy} className="sidebar-chat !w-auto min-w-0 flex-1" aria-current={conversation.id === currentChatId ? "page" : undefined} onClick={() => { setCurrentChatId(conversation.id); setActivePaymentOrderId(conversation.paymentOrderId ?? ""); setActiveJourneyId(conversation.journeyId ?? ""); setInlineView(null); setTransactionPromptId(""); setAttachment(null); setUploadMenu(false); setMessages(conversation.messages); if (menu) closeMenu(); }}>{conversation.title}</button>
+      <button type="button" onClick={() => toggleChatFlag(conversation.id, "pinned")} aria-pressed={!!conversation.pinned} aria-label={`${conversation.pinned ? "Unpin" : "Pin"} ${conversation.title}`} title={conversation.pinned ? "Unpin chat" : "Pin chat"} className={`grid size-8 shrink-0 place-items-center rounded-lg hover:bg-white focus-visible:outline-2 focus-visible:outline-blue ${conversation.pinned ? "text-blue" : "text-ink-3"}`}><svg aria-hidden="true" viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m9 3 6 0-1 5 3 3v2H7v-2l3-3-1-5ZM12 13v8" /></svg></button>
+      <button type="button" onClick={() => toggleChatFlag(conversation.id, "saved")} aria-pressed={!!conversation.saved} aria-label={`${conversation.saved ? "Remove from saved chats" : "Save chat"}: ${conversation.title}`} title={conversation.saved ? "Remove from saved chats" : "Save chat"} className={`grid size-8 shrink-0 place-items-center rounded-lg hover:bg-white focus-visible:outline-2 focus-visible:outline-blue ${conversation.saved ? "text-blue" : "text-ink-3"}`}><svg aria-hidden="true" viewBox="0 0 24 24" className="size-4" fill={conversation.saved ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M6 3h12v18l-6-4-6 4V3Z" /></svg></button>
+    </div>
+  );
+
   return (
     <div className="app-shell">
       {menu && <button aria-label="Close menu" className="fixed inset-0 z-20 bg-ink/40 md:hidden" onClick={closeMenu} />}
@@ -352,10 +488,22 @@ export default function Home() {
         <button onClick={newConversation} className="new-claim" disabled={busy}>
           <span className="new-claim-icon" aria-hidden="true">+</span><span>New conversation</span>
         </button>
-        <button type="button" onClick={() => openInline("transactions")} className="sidebar-intro text-left">Transaction history <span aria-hidden="true">↗</span></button>
-        <button type="button" onClick={() => openInline("provider")} className="sidebar-intro text-left">Change insurance provider <span aria-hidden="true">↗</span></button>
-        <div className="sidebar-recent"><p>Recent chats</p>{conversations.length ? conversations.map((conversation) => <button key={conversation.id} type="button" disabled={busy} className="sidebar-chat" onClick={() => { setCurrentChatId(conversation.id); setActivePaymentOrderId(conversation.paymentOrderId ?? ""); setActiveJourneyId(conversation.journeyId ?? ""); setInlineView(null); setAttachment(null); setUploadMenu(false); setMessages(conversation.messages); if (menu) closeMenu(); }}>{conversation.title}</button>) : <span>No conversations yet</span>}<small className="sidebar-storage-note">Saved on this device</small></div>
-        <div className="sidebar-note"><span className="sidebar-note-icon" aria-hidden="true">✳</span><p>One less thing<br /><strong>to worry about.</strong></p></div>
+        <button type="button" onClick={() => openInline("transactions")} disabled={busy} className="sidebar-intro text-left disabled:opacity-50">Transaction history <span aria-hidden="true">↗</span></button>
+        <button type="button" onClick={() => openInline("provider")} disabled={busy} className="sidebar-intro text-left disabled:opacity-50">Change insurance provider <span aria-hidden="true">↗</span></button>
+        <button type="button" onClick={() => openInline("account")} disabled={busy} className="sidebar-intro text-left disabled:opacity-50">Account settings <span aria-hidden="true">↗</span></button>
+        <button type="button" onClick={() => setShowSavedChats((current) => !current)} aria-pressed={showSavedChats} className="sidebar-intro text-left">{showSavedChats ? "All chats" : "Saved chats"} <span aria-hidden="true">↗</span></button>
+        <div className="sidebar-recent">
+          {pinnedConversations.length > 0 && <><p>Pinned chats</p>{pinnedConversations.map(chatRow)}</>}
+          {otherConversations.length > 0 && <><p className={pinnedConversations.length ? "mt-5" : ""}>{showSavedChats ? "Saved chats" : "Recent chats"}</p>{otherConversations.map(chatRow)}</>}
+          {sidebarConversations.length === 0 && <><p>{showSavedChats ? "Saved chats" : "Recent chats"}</p><span>{showSavedChats ? "No saved chats yet. Use the bookmark on a chat to save it." : "No conversations yet"}</span></>}
+          <small className="sidebar-storage-note">{historyStorageError ? "Could not save changes on this device." : "Chats are stored on this device."}</small>
+        </div>
+        <div className="mt-auto px-3 pb-4">
+          <button type="button" onClick={() => void signOut()} disabled={busy || signingOut || signOutPartial} className="w-full rounded-lg px-2 py-2 text-left text-sm font-semibold text-ink-2 hover:bg-white disabled:opacity-50">{signingOut ? "Signing out…" : "Sign out"}</button>
+          <p className="mt-1 px-2 text-xs leading-5 text-ink-3">Chats stay on this device. Claim details from this session cannot be reopened after sign out.</p>
+          {signOutError && <p role="alert" className="mt-2 px-2 text-xs leading-5 text-red-700">{signOutError}</p>}
+          {signOutPartial && <button type="button" onClick={() => { window.dispatchEvent(new Event("storage")); router.replace("/welcome"); }} className="mt-2 px-2 text-xs font-bold text-blue underline">Continue to welcome</button>}
+        </div>
       </aside>
 
       <main className="chat-main" inert={menu}>
@@ -400,13 +548,13 @@ export default function Home() {
                 ) : (
                   <div key={message.id} className="agent-message animate-fade-up">
                     <span className="agent-avatar"><Mark size={30} /></span>
-                    <div><p className="agent-name">Fynish</p><p className="agent-copy whitespace-pre-wrap">{message.text ? <MessageText text={message.text} /> : busy ? thinkingLabel(messages.filter((item) => item.role === "user").at(-1)?.text ?? "") : failureText("")}</p>{message.text && !(busy && index === messages.length - 1) && <VoicePlayback text={message.text} language={voiceLanguageFor(messages, index)} />}</div>
+                    <div><p className="agent-name">Fynish</p><p className="agent-copy whitespace-pre-wrap">{message.text ? <MessageText text={message.text} /> : busy ? thinkingLabel(messages.filter((item) => item.role === "user").at(-1)?.text ?? "") : failureText("")}</p>{message.id === transactionPromptId && <div className="mt-3 flex gap-2" role="group" aria-label="Payment alerts setup"><button type="button" onClick={() => answerTransactionPrompt(true)} className="rounded-xl bg-blue px-4 py-2 text-sm font-bold text-white">{transactionCopy(messages).yes}</button><button type="button" onClick={() => answerTransactionPrompt(false)} className="rounded-xl border border-line bg-white px-4 py-2 text-sm font-bold text-ink">{transactionCopy(messages).no}</button></div>}{message.text && !(busy && index === messages.length - 1) && <VoicePlayback text={message.text} language={voiceLanguageFor(messages, index)} />}</div>
                   </div>
                 ))}
                 {inlineView && <div className="agent-message animate-fade-up">
                   <span className="agent-avatar"><Mark size={30} /></span>
                   <div className="min-w-0 flex-1"><div className="mb-3 flex items-center justify-between gap-3"><p className="agent-name">Fynish</p><button type="button" onClick={() => setInlineView(null)} className="text-sm font-semibold text-ink-2 underline">Close</button></div>
-                    {inlineView === "transactions" ? <TransactionHistory embedded onCheckPayment={(signal) => void openPaymentSignal({ ...signal, method: null, seen: true, isHospital: true })} /> : <ClaimFlow key={`${inlineView}-${currentChatId}`} embedded changeProvider onAssessment={(journeyId) => { const snapshot = chatSnapshot.current; if (snapshot.id !== currentChatId) return; snapshot.journeyId = journeyId; setActiveJourneyId(journeyId); setInlineView(null); const title = parseChatHistory(readChatHistory()).find((item) => item.id === currentChatId)?.title ?? "Claim review"; saveConversation({ id: currentChatId, title, messages: snapshot.messages, ...(journeyId ? { journeyId } : {}), ...(snapshot.paymentOrderId ? { paymentOrderId: snapshot.paymentOrderId } : {}) }); }} />}
+                    {inlineView === "transactions" ? <TransactionHistory embedded onCheckPayment={(signal) => void openPaymentSignal({ ...signal, method: null, seen: true, isHospital: true })} /> : inlineView === "account" ? <AccountSettings onChangeProvider={() => openInline("provider")} onManagePayments={() => openInline("transactions")} /> : <ClaimFlow key={`${inlineView}-${currentChatId}`} embedded changeProvider onAssessment={(journeyId) => { const snapshot = chatSnapshot.current; if (snapshot.id !== currentChatId) return; snapshot.journeyId = journeyId; setActiveJourneyId(journeyId); setInlineView(null); const title = parseChatHistory(readChatHistory()).find((item) => item.id === currentChatId)?.title ?? "Claim review"; saveConversation({ id: currentChatId, title, messages: snapshot.messages, ...(journeyId ? { journeyId } : {}), ...(snapshot.paymentOrderId ? { paymentOrderId: snapshot.paymentOrderId } : {}) }); }} />}
                   </div>
                 </div>}
                 <div ref={messagesEnd} />

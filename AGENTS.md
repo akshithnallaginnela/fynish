@@ -7,3 +7,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
 
 <!-- END:nextjs-agent-rules -->
+
+## Roast Room
+
+Use the Roast Room skill for significant product and business decisions during Fynish development. Prefer its quick mode for reversible decisions. Project advisor files are in `.claude/agents/` and skill resources are in `.claude/skills/roast-room/`. Treat the advisors as simulations.
