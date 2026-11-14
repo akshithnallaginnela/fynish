@@ -64,3 +64,43 @@
 .merchant-disclosure { color: var(--ink-3) !important; font-size: 12px !important; line-height: 1.5; }
 @media (max-width: 700px) { .merchant-layout { grid-template-columns: 1fr; gap: 12px; } .merchant-layout .merchant-review { margin-top: 0; } }
 @media (max-width: 600px) { .payment-header { padding: 18px 20px; } .payment-content { margin-top: 42px; } }
+
+.transactions-content { width: min(820px, calc(100% - 40px)); margin: 45px auto 80px; }
+.transactions-content > h1 { margin: 10px 0 0; color: var(--ink); font-size: clamp(2rem, 4vw, 3rem); font-weight: 750; letter-spacing: -.04em; line-height: 1.1; }
+.transactions-intro { margin-top: 10px; color: var(--ink-2); font-size: 15px; line-height: 1.6; }
+.transactions-account { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 28px; border: 1px solid var(--line); border-radius: 18px; background: var(--card); padding: 20px 22px; }
+.transactions-label { color: var(--blue); font-size: 10px; font-weight: 800; letter-spacing: .08em; }
+.transactions-account h2, .transactions-heading h2 { margin: 5px 0 0; color: var(--ink); font-size: 18px; font-weight: 750; }
+.transactions-account p { margin: 5px 0 0; color: var(--ink-2); font-size: 13px; line-height: 1.5; }
+.transactions-connect { flex: none; min-height: 42px; border-radius: 10px; background: var(--blue); padding: 0 15px; color: white; font-size: 13px; font-weight: 750; }
+.transactions-connect:disabled { opacity: .5; }
+.transactions-section { margin-top: 28px; }
+.transactions-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.transactions-heading > span { display: grid; min-width: 28px; height: 28px; place-items: center; border-radius: 50%; background: var(--blue-tint); color: var(--blue); font-size: 12px; font-weight: 800; }
+.transactions-empty { margin-top: 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); padding: 18px; color: var(--ink-2); font-size: 13px; }
+.transactions-alerts { display: grid; gap: 10px; margin-top: 14px; }
+.transactions-alert { display: flex; align-items: center; justify-content: space-between; gap: 15px; border: 1px solid #cce8d7; border-radius: 14px; background: var(--green-tint); padding: 16px 18px; }
+.transactions-alert strong { color: var(--green); font-size: 14px; }
+.transactions-alert p { margin: 5px 0 0; color: var(--ink); font-size: 13px; }
+.transactions-alert small { display: block; margin-top: 5px; color: var(--ink-2); font-size: 12px; }
+.transactions-alert-actions { display: flex; align-items: center; gap: 12px; }
+.transactions-alert-actions > button:not(.transaction-claim) { color: var(--ink-2); font-size: 12px; text-decoration: underline; }
+.transactions-source { margin-top: 10px; color: var(--ink-3); font-size: 12px; line-height: 1.5; }
+.transactions-subheading { margin: 20px 0 0; color: var(--ink-2); font-size: 13px; font-weight: 750; }
+.transactions-list { margin: 8px 0 0; padding: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: var(--card); list-style: none; }
+.transactions-list li { display: flex; align-items: center; gap: 12px; border-top: 1px solid var(--line); padding: 15px 16px; }
+.transactions-list li:first-child { border-top: 0; }
+.transactions-icon { display: grid; width: 38px; height: 38px; flex: none; place-items: center; border-radius: 12px; background: var(--blue-tint); color: var(--blue); font-weight: 800; }
+.transactions-detail { min-width: 0; flex: 1; }
+.transactions-detail strong, .transactions-detail small { display: block; overflow-wrap: anywhere; }
+.transactions-detail strong, .transactions-amount strong { color: var(--ink); font-size: 13px; }
+.transactions-detail small { margin-top: 4px; color: var(--ink-3); font-size: 11px; }
+.transactions-amount { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 12px; }
+.transaction-claim { display: inline-flex; min-height: 36px; align-items: center; justify-content: center; border: 1px solid #bfc1ff; border-radius: 9px; background: white; padding: 0 11px; color: var(--blue); font-size: 12px; font-weight: 750; text-decoration: none; white-space: nowrap; }
+.transaction-claim:hover { background: var(--blue-tint); }
+.transactions-modal-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; background: #0e1b338c; padding: 16px; }
+.transactions-modal { width: min(100%, 720px); max-height: 92dvh; overflow-y: auto; border-radius: 20px; background: var(--card); padding: 22px; box-shadow: 0 24px 80px #0e1b3340; }
+.transactions-modal-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.transactions-modal-heading h2 { margin: 0; font-size: 18px; font-weight: 750; }
+.transactions-modal-heading button { display: grid; width: 36px; height: 36px; place-items: center; border: 1px solid var(--line); border-radius: 10px; font-size: 23px; }
+@media (max-width: 600px) { .transactions-content { margin-top: 30px; } .transactions-account, .transactions-alert { align-items: flex-start; flex-direction: column; } .transactions-list li { flex-wrap: wrap; } .transactions-amount { margin-left: 50px; } }

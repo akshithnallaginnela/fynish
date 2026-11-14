@@ -9,6 +9,7 @@ const Body = z.object({
     content: z.string().trim().min(1).max(2_000),
   })).min(1).max(12),
   journeyId: z.string().uuid().optional(),
+  billAttached: z.boolean().optional(),
   language: z.enum(["en", "te", "hi"]).optional(),
   script: z.enum(["native", "roman"]).optional(),
 }).strict();
@@ -33,7 +34,7 @@ ACCURACY:
 - When a bill assessment is supplied, use its extracted bill and policy facts to answer the user's question. If asked for a claim overview, give the policy cover, estimated claim and remaining cover; do not invent an unavailable amount. Show only policy references for which actual wording is supplied.
 - Help users prepare for an insurer conversation: distinguish their requested amount from a verified entitlement, identify relevant bill items and supplied policy clauses, and suggest asking for an itemised calculation, written reasons, missing documents, and the insurer's review process. If information is missing, say so and ask for it. Never suggest exaggerating charges or inventing evidence.
 - Fynish's HDFC ERGO wording is synthetic. Describe it as synthetic wording if asked about that policy.
-- For questions outside insurance or related personal finance, answer briefly when useful and say when the answer needs current professional advice. Do not present guesses as facts.
+- Answer general questions naturally and helpfully without forcing insurance or claim details into an unrelated reply. Say when current information or professional advice is needed, and do not present guesses as facts.
 - Do not ask for passwords, one-time codes, or payment credentials. Keep answers concise, warm, and easy to act on.`;
 
 function replyStyle(message: string) {
@@ -85,20 +86,24 @@ export async function POST(request: Request) {
       const { getSelectedPolicyForRequest } = await import("@/lib/provider/server");
       selectedPolicy = await getSelectedPolicyForRequest(request);
     } catch {
+      console.error("Assistant policy context unavailable");
       // General questions remain available when the demo insurer is offline or expired.
     }
     if (parsed.journeyId) {
       try {
         const { getClaimContext } = await import("@/lib/assistant/claim-context");
         claimContext = await getClaimContext(parsed.journeyId, sessionId);
-      } catch {
-        // The assistant is told below when the assessment cannot be retrieved.
-      }
+      } catch { console.error("Assistant claim context lookup failed"); }
     }
+  }
+  if (parsed.journeyId && !claimContext) {
+    console.error("Assistant claim context missing");
+    return Response.json({ error: "Your bill assessment is temporarily unavailable. Please try again.", code: "claim_context_unavailable" }, { status: 503 });
   }
   const knowledge = faqContext.length
     ? `Public insurer FAQ notes for general reference (not the customer's policy; product terms vary):\n${faqContext.map((faq) => `Question: ${faq.question}\nAnswer: ${faq.answer}\nSource: ${faq.title} — ${faq.url}`).join("\n\n")}`
-    : "No matching insurer FAQ note was found. Use general education only and ask for the exact insurer/product when a policy-specific answer is needed.";
+    : "No additional public insurer FAQ notes were found. Use connected policy and bill assessment facts when supplied.";
+  const billInstruction = parsed.billAttached && claimContext ? "The user has just uploaded this bill. If their request asks whether it is claimable, covered or for a claim overview, begin your answer with exactly these three concise figures in the conversation's language: total policy cover (policyCoverRupees), estimated claim (estimatedPayableRupees), and projected remaining cover after this claim (projectedRemainingCoverRupees). Use only the supplied values; if a value is null say it needs review rather than inventing a number. Label the remaining amount as projected and the estimate as provisional. Then answer the actual question and explain only relevant conditions or missing information. If the user asks an unrelated general question, answer it directly without adding the claim overview." : "";
   try {
     upstream = await fetch(`${base}/chat/completions`, {
       method: "POST",
@@ -111,7 +116,7 @@ export async function POST(request: Request) {
         stream: true,
         max_tokens: 900,
         ...(isGemini ? { reasoning_effort: "low" } : { temperature: 0.35 }),
-        messages: [{ role: "system", content: systemPrompt }, { role: "system", content: style }, { role: "system", content: knowledge }, { role: "system", content: policyContext(selectedPolicy) }, ...(claimContext ? [{ role: "system", content: claimContext }] : parsed.journeyId ? [{ role: "system", content: "The bill assessment is unavailable. Explain that you cannot access the uploaded bill and ask the user to upload it again. Do not assume its contents." }] : []), ...parsed.messages],
+        messages: [{ role: "system", content: [systemPrompt, style, knowledge, policyContext(selectedPolicy), claimContext, billInstruction].filter(Boolean).join("\n\n") }, ...parsed.messages],
       }),
       signal: AbortSignal.timeout(60_000),
     });

@@ -3,6 +3,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { ONBOARDING_KEY } from "@/lib/onboarding";
+import type { BankSession } from "@/components/simulated-bank-connect";
 
 type Profile = { name?: string; provider?: string; bankConnected?: string };
 type InsurerSession = { connected: boolean; provider?: "star" | "hdfc-ergo" };
@@ -23,6 +24,7 @@ export default function AccountSettings({ onChangeProvider, onManagePayments }: 
   let profile: Profile = {};
   try { profile = JSON.parse(raw ?? "null") ?? {}; } catch { /* Use an empty profile when storage is unavailable. */ }
   const [insurer, setInsurer] = useState<InsurerSession | null>(null);
+  const [bank, setBank] = useState<BankSession | "unavailable" | null>(null);
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -34,6 +36,22 @@ export default function AccountSettings({ onChangeProvider, onManagePayments }: 
     fetch("/api/provider/session", { cache: "no-store" }).then((response) => response.ok ? response.json() : null)
       .then((value: InsurerSession | null) => { if (active) setInsurer(value); }).catch(() => {});
     return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const refresh = () => {
+      fetch("/api/bank/session", { cache: "no-store" })
+        .then(async (response) => {
+          if (!response.ok) throw new Error("Bank session unavailable");
+          return response.json() as Promise<BankSession>;
+        })
+        .then((value) => { if (active) setBank(value); })
+        .catch(() => { if (active) setBank("unavailable"); });
+    };
+    refresh();
+    window.addEventListener("fynish:bank-connection-changed", refresh);
+    return () => { active = false; window.removeEventListener("fynish:bank-connection-changed", refresh); };
   }, []);
 
   function saveName() {
@@ -67,13 +85,15 @@ export default function AccountSettings({ onChangeProvider, onManagePayments }: 
   }
 
   const insurerName = insurer?.connected ? (insurer.provider === "star" ? "Star Health" : "HDFC ERGO") : insurer ? "Not connected" : "Unavailable";
+  const bankName = !bank ? "Checking…" : bank === "unavailable" ? "Unavailable" : bank.connected && bank.account ? "Payment account connected" : "Not connected";
   return <section aria-label="Account settings" className="w-full max-w-2xl rounded-2xl border border-line bg-card p-5 sm:p-6">
     <h2 className="text-lg font-bold text-ink">Account settings</h2>
     <p className="mt-2 text-sm leading-6 text-ink-2">Manage your profile and connections on this device.</p>
     <div className="mt-5 divide-y divide-line rounded-xl border border-line bg-white px-4">
       <div className="flex flex-wrap items-center justify-between gap-3 py-4"><div><p className="text-xs font-semibold text-ink-3">Name</p>{editing ? <label className="mt-2 block"><span className="sr-only">Your name</span><input className="min-h-10 w-full rounded-lg border border-line px-3 text-sm" value={name} maxLength={60} onChange={(event) => setName(event.target.value)} /></label> : <p className="mt-1 text-sm font-bold text-ink">{profile.name || "Not set"}</p>}</div>{editing ? <div className="flex gap-3"><button type="button" disabled={!name.trim()} onClick={saveName} className="text-sm font-semibold text-blue disabled:opacity-40">Save</button><button type="button" onClick={() => setEditing(false)} className="text-sm font-semibold text-ink-2">Cancel</button></div> : <button type="button" onClick={() => { setName(profile.name ?? ""); setEditing(true); }} className="text-sm font-semibold text-blue">Edit</button>}</div>
       <div className="flex items-center justify-between gap-3 py-4"><div><p className="text-xs font-semibold text-ink-3">Insurance provider</p><p className="mt-1 text-sm font-bold text-ink">{insurerName}</p></div><button type="button" onClick={onChangeProvider} className="text-sm font-semibold text-blue">Manage</button></div>
-      <div className="flex items-center justify-between gap-3 py-4"><div><p className="text-xs font-semibold text-ink-3">Checkout payment alerts</p><p className="mt-1 text-sm font-bold text-ink">{profile.bankConnected === "true" ? "On" : "Off"}</p></div><button type="button" onClick={onManagePayments} className="text-sm font-semibold text-blue">Manage</button></div>
+      <div className="flex items-center justify-between gap-3 py-4"><div><p className="text-xs font-semibold text-ink-3">Bank account · simulation</p><p className="mt-1 text-sm font-bold text-ink">{bankName}</p></div><button type="button" aria-label="Manage bank account" onClick={onManagePayments} className="text-sm font-semibold text-blue">Manage</button></div>
+      <div className="flex items-center justify-between gap-3 py-4"><div><p className="text-xs font-semibold text-ink-3">Checkout payment alerts</p><p className="mt-1 text-sm font-bold text-ink">{profile.bankConnected === "true" ? "On" : "Off"}</p></div><button type="button" aria-label="Manage checkout payment alerts" onClick={onManagePayments} className="text-sm font-semibold text-blue">Manage</button></div>
     </div>
     <p className="mt-5 text-xs leading-5 text-ink-3">Your chats remain on this device after sign out. Previously uploaded claim details belong to this session and cannot be reopened after signing out.</p>
     {error && <p className="mt-3 text-sm text-red-700" role="alert">{error}</p>}

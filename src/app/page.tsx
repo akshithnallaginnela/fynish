@@ -1,18 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import Mark from "@/components/mark";
 import Wordmark from "@/components/wordmark";
-import ClaimFlow from "@/components/claim-flow";
-import TransactionHistory from "@/components/transaction-history";
 import AccountSettings, { logoutAccount } from "@/components/account-settings";
+import TransactionNotifications, { type PaymentNotification } from "@/components/transaction-notifications";
 import type { BankTransaction } from "@/components/simulated-bank-connect";
 import CursorBackground from "@/components/cursor-background";
 import { useSarvamVoice, VoicePlayback, type VoiceLanguage, type VoiceScript } from "@/components/voice-controls";
 import { ONBOARDING_KEY } from "@/lib/onboarding";
 
-type Message = { id: string; role: "user" | "assistant"; text: string; voiceLanguage?: VoiceLanguage; attachment?: { name: string }; failed?: boolean; systemChoice?: boolean };
+type Message = { id: string; role: "user" | "assistant"; text: string; voiceLanguage?: VoiceLanguage; attachment?: { name: string }; failed?: boolean; reconnectRequired?: boolean; systemChoice?: boolean; claimReply?: boolean };
 type PaymentSignal = { orderId: string; hospitalName: string; amountPaise: number; paymentId: string | null; method: string | null; paidAt: string | null; seen: boolean; isHospital: boolean };
 type Conversation = { id: string; title: string; messages: Message[]; paymentOrderId?: string; journeyId?: string; saved?: boolean; pinned?: boolean };
 const CHAT_HISTORY_KEY = "fynish.chats";
@@ -36,21 +35,46 @@ function languageOf(text: string) {
   if (/[\u0C00-\u0C7F]/u.test(text)) return "te";
   if (/[\u0900-\u097F]/u.test(text)) return "hi";
   const lower = ` ${text.toLowerCase()} `;
-  if (/\b(naaku|naku|mee|ela|undi|chesukovali|cheyyali|cheyali|cheysina|cheysthe|cheysthundi|avuthundi|kavala|ante|nenu|cheppu|nuvvu|nuvv|enti|enduku|ardham|osthundi|osthadi|asalu)\b/u.test(lower)) return "te";
+  if (/\b(naaku|naku|naa|mee|ela|edi|idhi|undi|undha|chesukovali|cheyyali|cheyali|cheyava|cheyyava|chesava|cheysina|cheysthe|cheysthundi|avuthundi|kavala|ante|nenu|cheppu|nuvvu|nuvv|enti|enduku|ardham|osthundi|osthadi|asalu|ledu|ochindi)\b/u.test(lower)) return "te";
   if (/\b(mujhe|mera|meri|kaise|kya|hai|hain|chahiye|karna|ka|ki|ke|policy batao|claim kaise)\b/u.test(lower)) return "hi";
   return "en";
 }
 
-function transactionCopy(messages: Message[]) {
+type Insurer = "star" | "hdfc-ergo";
+function insurerFromReply(text: string): Insurer | null {
+  const value = text.toLowerCase().trim();
+  if (/[?？]/u.test(value) || value.split(/\s+/u).length > 7 || /\b(what|how|why|where|tell|explain|help|ela|enti|kaise|kya)\b/u.test(value)) return null;
+  if (/\bstar(?:\s+health)?\b|స్టార్|स्टार/u.test(value)) return "star";
+  if (/\bhdfc(?:[\s-]+ergo)?\b|హెచ్\s*డి\s*ఎఫ్\s*సి|एच\s*डी\s*एफ\s*सी/u.test(value)) return "hdfc-ergo";
+  return null;
+}
+
+function claimSuggestions(messages: Message[]) {
+  const first = messages.find((message) => message.role === "user" && !message.systemChoice)?.text ?? "";
+  const lang = languageOf(first);
+  if (lang === "te") return /[\u0C00-\u0C7F]/u.test(first)
+    ? ["ఏ ఖర్చులు కవర్ కాకపోవచ్చు?", "నాకు ఏ పత్రాలు అవసరం?", "క్లెయిమ్ ఎలా సమర్పించాలి?"]
+    : ["E kharchulu cover kakapovachu?", "Naaku e documents kavali?", "Claim ela submit cheyyali?"];
+  if (lang === "hi") return /[\u0900-\u097F]/u.test(first)
+    ? ["कौन से खर्च कवर नहीं हो सकते?", "मुझे कौन से दस्तावेज़ चाहिए?", "क्लेम कैसे जमा करूँ?"]
+    : ["Kaunse kharche cover nahi ho sakte?", "Mujhe kaunse documents chahiye?", "Claim kaise submit karun?"];
+  return ["Which costs might not be covered?", "What documents do I need?", "How do I submit the claim?"];
+}
+
+function insurerMessage(messages: Message[], kind: "ask" | "opening" | "unsupported" | "failed" | "connected" | "select", name = "") {
   const first = messages.find((message) => message.role === "user" && !message.systemChoice)?.text ?? "";
   const language = languageOf(first);
-  if (language === "te") return /[\u0C00-\u0C7F]/u.test(first)
-    ? { question: "మీరు వ్యాపారుల చెల్లింపులు, లావాదేవీలను ఇక్కడ చూడాలనుకుంటున్నారా?", yes: "అవును", no: "వద్దు", next: "సరే, అనుకరణ బ్యాంక్ ఖాతాను కనెక్ట్ చేద్దాం.", cancel: "సరే, మీరు కోరినప్పుడు సెటప్ చేయవచ్చు." }
-    : { question: "Mee merchant payments mariyu transactions ikkada manage cheyyalanukuntunnara?", yes: "Avunu", no: "Vaddu", next: "Sare, simulated bank account connect chesukundam.", cancel: "Sare, meeku kavali anukunnappudu setup cheyyachu." };
-  if (language === "hi") return /[\u0900-\u097F]/u.test(first)
-    ? { question: "क्या आप यहाँ मर्चेंट भुगतान और लेनदेन देखना चाहेंगे?", yes: "हाँ", no: "नहीं", next: "ठीक है, सिमुलेटेड बैंक खाता जोड़ते हैं।", cancel: "ठीक है, आप बाद में सेट कर सकते हैं।" }
-    : { question: "Kya aap yahan merchant payments aur transactions dekhna chahenge?", yes: "Haan", no: "Nahi", next: "Theek hai, simulated bank account connect karte hain.", cancel: "Theek hai, aap baad mein setup kar sakte hain." };
-  return { question: "Would you like to manage your merchant payments and transactions here?", yes: "Yes", no: "No", next: "Sure, let's connect a simulated bank account.", cancel: "Okay, you can set this up whenever you need it." };
+  if (language === "te") return (/[\u0C00-\u0C7F]/u.test(first) ? {
+    ask: "ఏ ఇన్సూరెన్స్ సంస్థను కనెక్ట్ చేయాలనుకుంటున్నారు? Star Health లేదా HDFC ERGO అని టైప్ చేయండి.", opening: `${name} ఖాతా అనుకరణను తెరుస్తున్నాను.`, unsupported: "Star Health లేదా HDFC ERGO అని టైప్ చేయండి.", failed: "ఇన్సూరెన్స్ కనెక్షన్ పూర్తి కాలేదు. దయచేసి మళ్లీ ప్రయత్నించండి.", connected: `${name} ఖాతా అనుకరణ కనెక్ట్ అయింది; పాలసీ ఎంపికైంది. మీకు ఎలా సహాయపడగలను?`, select: `${name} ఖాతా అనుకరణ కనెక్ట్ అయింది. దయచేసి ఖాతా సెట్టింగ్స్‌లో పాలసీని ఎంచుకోండి.`,
+  } : {
+    ask: "E insurance provider ni connect cheyyali? Star Health leda HDFC ERGO ani type cheyyandi.", opening: `${name} account simulation open chesthunnanu.`, unsupported: "Star Health leda HDFC ERGO ani type cheyyandi.", failed: "Insurance connection complete avvaledu. Malli try cheyyandi.", connected: `${name} account simulation connect ayi policy select ayyindi. Ela help cheyyali?`, select: `${name} account simulation connect ayyindi. Account settings lo policy select cheyyandi.`,
+  })[kind];
+  if (language === "hi") return (/[\u0900-\u097F]/u.test(first) ? {
+    ask: "किस बीमा प्रदाता को जोड़ना चाहेंगे? Star Health या HDFC ERGO टाइप करें।", opening: `${name} खाता सिमुलेशन खोल रहा हूँ।`, unsupported: "Star Health या HDFC ERGO टाइप करें।", failed: "बीमा कनेक्शन पूरा नहीं हुआ। फिर कोशिश करें।", connected: `${name} खाता सिमुलेशन जुड़ गया और पॉलिसी चुन ली गई। मैं कैसे मदद करूँ?`, select: `${name} खाता सिमुलेशन जुड़ गया। खाता सेटिंग में पॉलिसी चुनें।`,
+  } : {
+    ask: "Kaunsa insurer connect karna hai? Star Health ya HDFC ERGO type karein.", opening: `${name} account simulation khol raha hoon.`, unsupported: "Star Health ya HDFC ERGO type karein.", failed: "Insurance connection poora nahi hua. Phir koshish karein.", connected: `${name} account simulation connect hua aur policy select ho gayi. Main kaise madad karun?`, select: `${name} account simulation connect hua. Account settings mein policy select karein.`,
+  })[kind];
+  return { ask: "Which insurance provider would you like to connect? Type Star Health or HDFC ERGO.", opening: `Opening the ${name} account simulation.`, unsupported: "I can connect the Star Health and HDFC ERGO account simulations. Please type one of those insurer names.", failed: "The insurer connection did not finish. Please try again.", connected: `${name} account simulation connected and your policy is selected. How can I help?`, select: `${name} account simulation connected. Please select your policy in account settings.` }[kind];
 }
 
 function voiceLanguageFor(messages: Message[], index: number): VoiceLanguage {
@@ -73,6 +97,20 @@ function failureText(text: string) {
   if (language === "te") return /[\u0C00-\u0C7F]/u.test(text) ? "ఇప్పుడు సమాధానం ఇవ్వలేకపోయాను. మళ్లీ ప్రయత్నించండి." : "Ippudu samadhanam ivvalekapoyanu. Malli try cheyyandi.";
   if (language === "hi") return /[\u0900-\u097F]/u.test(text) ? "अभी जवाब नहीं दे पाया। कृपया फिर कोशिश करें।" : "Abhi jawab nahi de paya. Phir koshish karein.";
   return "I couldn't answer just now. Please try again.";
+}
+
+function reconnectLabel(text: string) {
+  const language = languageOf(text);
+  if (language === "te") return /[\u0C00-\u0C7F]/u.test(text) ? "బీమా కనెక్షన్‌ను మళ్లీ కలపండి" : "Insurance ni malli connect cheyyandi";
+  if (language === "hi") return /[\u0900-\u097F]/u.test(text) ? "बीमा कनेक्शन फिर से जोड़ें" : "Insurance connection phir se jodein";
+  return "Reconnect insurer";
+}
+
+function claimContextFailureText(text: string) {
+  const language = languageOf(text);
+  if (language === "te") return /[\u0C00-\u0C7F]/u.test(text) ? "మీ బిల్లు పరిశీలన ఇప్పుడు అందుబాటులో లేదు. కాసేపటి తర్వాత మళ్లీ ప్రయత్నించండి." : "Mee bill assessment ippudu available ledu. Kasepati tarvata malli try cheyyandi.";
+  if (language === "hi") return /[\u0900-\u097F]/u.test(text) ? "आपके बिल का आकलन अभी उपलब्ध नहीं है। थोड़ी देर बाद फिर कोशिश करें।" : "Aapke bill ka assessment abhi available nahi hai. Thodi der baad phir koshish karein.";
+  return "Your bill assessment is temporarily unavailable. Please try again shortly.";
 }
 
 function billFailureText(status: number, detail: string, reference: string, code = "") {
@@ -136,8 +174,10 @@ export default function Home() {
   const [currentChatId, setCurrentChatId] = useState("");
   const [activePaymentOrderId, setActivePaymentOrderId] = useState("");
   const [activeJourneyId, setActiveJourneyId] = useState("");
-  const [inlineView, setInlineView] = useState<"provider" | "transactions" | "account" | null>(null);
-  const [transactionPromptId, setTransactionPromptId] = useState("");
+  const [inlineView, setInlineView] = useState<"account" | null>(null);
+  const [providerPrompt, setProviderPrompt] = useState(false);
+  const [providerLogin, setProviderLogin] = useState<{ provider: Insurer; url: string; chatId: string } | null>(null);
+  const providerFrame = useRef<HTMLIFrameElement>(null);
   const chatSnapshot = useRef({ id: "", messages: [] as Message[], paymentOrderId: "", journeyId: "" });
   const [historyOverride, setHistoryOverride] = useState<Conversation[] | null>(null);
   const [showSavedChats, setShowSavedChats] = useState(false);
@@ -147,9 +187,8 @@ export default function Home() {
   const [signOutPartial, setSignOutPartial] = useState(false);
   const savedHistory = useSyncExternalStore(subscribeToProfile, readChatHistory, () => "[]");
   const conversations = historyOverride ?? parseChatHistory(savedHistory);
-  const [paymentSignals, setPaymentSignals] = useState<PaymentSignal[]>([]);
-  const [bankConnected, setBankConnected] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [pendingNotification, setPendingNotification] = useState<PaymentNotification | null>(null);
   const [voiceLanguage, setVoiceLanguage] = useState<VoiceLanguage>("en-IN");
   const [voiceScript, setVoiceScript] = useState<VoiceScript>("native");
   useEffect(() => { chatSnapshot.current = { id: currentChatId, messages, paymentOrderId: activePaymentOrderId, journeyId: activeJourneyId }; }, [currentChatId, messages, activePaymentOrderId, activeJourneyId]);
@@ -167,31 +206,12 @@ export default function Home() {
     },
     () => "",
   );
-  const paymentConnected = useSyncExternalStore(
-    subscribeToProfile,
-    () => {
-      try { return (JSON.parse(localStorage.getItem(ONBOARDING_KEY) ?? "null") as { bankConnected?: string } | null)?.bankConnected === "true"; }
-      catch { return false; }
-    },
-    () => false,
-  );
   const messagesEnd = useRef<HTMLDivElement>(null);
   const menuButton = useRef<HTMLButtonElement>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
+  const paymentHandoff = useRef("");
 
-  useEffect(() => {
-    let active = true;
-    const refresh = () => {
-      fetch("/api/bank/session", { cache: "no-store" }).then((response) => response.ok ? response.json() : null)
-        .then((result) => { if (active) setBankConnected(result?.connected === true); })
-        .catch(() => { if (active) setBankConnected(false); });
-    };
-    refresh();
-    window.addEventListener("fynish:bank-connection-changed", refresh);
-    return () => { active = false; window.removeEventListener("fynish:bank-connection-changed", refresh); };
-  }, []);
-
-  const saveConversation = (conversation: Conversation) => {
+  const saveConversation = useCallback((conversation: Conversation) => {
     const stored = parseChatHistory(readChatHistory());
     const previous = stored.find((item) => item.id === conversation.id) ?? historyOverride?.find((item) => item.id === conversation.id);
     const existing = stored.length ? stored : historyOverride ?? [];
@@ -201,7 +221,26 @@ export default function Home() {
     setHistoryOverride(updated);
     try { localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(updated)); setHistoryStorageError(false); }
     catch { setHistoryStorageError(true); }
-  };
+  }, [historyOverride]);
+
+  const beginPaymentChat = useCallback((merchantName: string, amountPaise: number, orderId?: string, simulated = false) => {
+    const amount = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(amountPaise / 100);
+    const chatId = createId();
+    const question: Message = { id: createId(), role: "user", text: `Please check whether my ${amount} payment to ${merchantName} may be covered by my policy.`, attachment: { name: `${simulated ? "Simulated payment" : "Payment"} · ${merchantName} · ${amount}` }, systemChoice: true };
+    const intro: Message = { id: createId(), role: "assistant", text: "Please upload the related itemised bill as an image or PDF. I’ll check it against your connected policy and explain what may be covered." };
+    setCurrentChatId(chatId); setActivePaymentOrderId(orderId ?? ""); setActiveJourneyId(""); setInlineView(null); setProviderPrompt(false); setAttachment(null); setDraft("");
+    setMessages([question, intro]);
+    saveConversation({ id: chatId, title: `${merchantName} payment`, messages: [question, intro], ...(orderId ? { paymentOrderId: orderId } : {}) });
+  }, [saveConversation]);
+
+  useEffect(() => {
+    if (busy || !pendingNotification) return;
+    const timer = window.setTimeout(() => {
+      beginPaymentChat(pendingNotification.hospitalName, pendingNotification.amountPaise, pendingNotification.orderId);
+      setPendingNotification(null);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [busy, pendingNotification, beginPaymentChat]);
 
   const toggleChatFlag = (id: string, flag: "saved" | "pinned") => {
     const updated = conversations.map((item) => item.id === id ? { ...item, [flag]: !item[flag] } : item);
@@ -237,7 +276,7 @@ export default function Home() {
     setActivePaymentOrderId("");
     setActiveJourneyId("");
     setInlineView(null);
-    setTransactionPromptId("");
+    setProviderPrompt(false);
     setMessages([]);
     setAttachment(null);
     setUploadMenu(false);
@@ -252,30 +291,18 @@ export default function Home() {
 
   const openInline = (view: "provider" | "transactions" | "account") => {
     if (busy) return;
+    if (view === "transactions") { router.push("/transactions"); if (menu) closeMenu(); return; }
     const chatId = currentChatId || createId();
-    const askFirst = view === "transactions" && !bankConnected;
-    const text = view === "provider" ? "Let's look at your insurance connection." : view === "account" ? "Here are your account settings." : askFirst ? transactionCopy(messages).question : "Here are your transaction alerts.";
+    const text = view === "provider" ? insurerMessage(messages, "ask") : "Here are your account settings.";
     const intro: Message = { id: createId(), role: "assistant", text };
     const nextMessages = [...messages, intro];
     setCurrentChatId(chatId);
     setMessages(nextMessages);
-    setTransactionPromptId(askFirst ? intro.id : "");
-    setInlineView(askFirst ? null : view);
-    const title = conversations.find((item) => item.id === chatId)?.title ?? (view === "provider" ? "Insurance provider" : view === "account" ? "Account settings" : "Transaction history");
+    setProviderPrompt(view === "provider");
+    setInlineView(view === "account" ? "account" : null);
+    const title = conversations.find((item) => item.id === chatId)?.title ?? (view === "provider" ? "Insurance provider" : "Account settings");
     saveConversation({ id: chatId, title, messages: nextMessages, ...(activeJourneyId ? { journeyId: activeJourneyId } : {}), ...(activePaymentOrderId ? { paymentOrderId: activePaymentOrderId } : {}) });
     if (menu) closeMenu();
-  };
-
-  const answerTransactionPrompt = (accepted: boolean, fromTyped = false) => {
-    const copy = transactionCopy(messages);
-    const chatId = currentChatId || createId();
-    const nextMessages: Message[] = [...messages, { id: createId(), role: "user", text: accepted ? copy.yes : copy.no, systemChoice: true }, { id: createId(), role: "assistant", text: accepted ? copy.next : copy.cancel }];
-    setTransactionPromptId("");
-    setMessages(nextMessages);
-    if (fromTyped) setDraft("");
-    setInlineView(accepted ? "transactions" : null);
-    const title = conversations.find((item) => item.id === chatId)?.title ?? "Transaction history";
-    saveConversation({ id: chatId, title, messages: nextMessages, ...(activeJourneyId ? { journeyId: activeJourneyId } : {}), ...(activePaymentOrderId ? { paymentOrderId: activePaymentOrderId } : {}) });
   };
 
   const onboarded = useSyncExternalStore(
@@ -292,22 +319,39 @@ export default function Home() {
   }, [onboarded, router]);
 
   useEffect(() => {
-    if (onboarded !== true || !paymentConnected) return;
-    let active = true;
-    const refresh = () => {
-      fetch("/api/payment-feed", { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((body) => {
-        if (active && Array.isArray(body?.signals)) setPaymentSignals(body.signals as PaymentSignal[]);
-      }).catch(() => {});
-    };
-    refresh();
-    const interval = window.setInterval(refresh, 5000);
-    window.addEventListener("focus", refresh);
-    return () => { active = false; window.clearInterval(interval); window.removeEventListener("focus", refresh); };
-  }, [onboarded, paymentConnected]);
+    if (onboarded !== true) return;
+    const query = new URLSearchParams(window.location.search);
+    const bankId = query.get("bankTransaction");
+    const orderId = query.get("paymentOrderId");
+    const key = bankId ? `bank:${bankId}` : orderId ? `checkout:${orderId}` : "";
+    if (!key || paymentHandoff.current === key) return;
+    paymentHandoff.current = key;
+    void (async () => {
+      try {
+        if (bankId) {
+          const response = await fetch("/api/bank/transactions", { cache: "no-store" });
+          const body = await response.json();
+          const transaction = response.ok && Array.isArray(body.transactions) ? body.transactions.find((item: BankTransaction) => item.id === bankId) as BankTransaction | undefined : undefined;
+          if (!transaction) throw new Error("payment unavailable");
+          beginPaymentChat(transaction.merchantName, transaction.amountPaise, undefined, true);
+        } else if (orderId) {
+          const response = await fetch(`/api/payment-feed?orderId=${encodeURIComponent(orderId)}`, { cache: "no-store" });
+          const body = await response.json();
+          const signal = response.ok && Array.isArray(body.signals) ? body.signals.find((item: PaymentSignal) => item.orderId === orderId) as PaymentSignal | undefined : undefined;
+          if (!signal) throw new Error("payment unavailable");
+          beginPaymentChat(signal.hospitalName, signal.amountPaise, signal.orderId, false);
+          void fetch("/api/payment-feed", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ orderId: signal.orderId }) }).catch(() => {});
+        }
+      } catch {
+        const message: Message = { id: createId(), role: "assistant", text: "I couldn't find this payment in your connected account. Please open transaction history and try again." };
+        setCurrentChatId(""); setActivePaymentOrderId(""); setActiveJourneyId(""); setMessages([message]);
+      } finally { router.replace("/"); }
+    })();
+  }, [onboarded, router, beginPaymentChat]);
 
   useEffect(() => {
     messagesEnd.current?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
-  }, [messages, busy, inlineView, transactionPromptId]);
+  }, [messages, busy, inlineView]);
 
   useEffect(() => {
     const latest = [...messages].reverse().find((message) => message.role === "user")?.text ?? draft;
@@ -326,13 +370,83 @@ export default function Home() {
     return () => { window.removeEventListener("keydown", onKey); desktop.removeEventListener("change", onResize); };
   }, [menu]);
 
+  useEffect(() => {
+    if (!providerLogin) return;
+    let handled = false;
+    const onMessage = (event: MessageEvent) => {
+      if (handled || event.origin !== window.location.origin || event.source !== providerFrame.current?.contentWindow) return;
+      if (event.data?.type !== "fynish-provider-connected" && event.data?.type !== "fynish-provider-error") return;
+      handled = true;
+      setProviderLogin(null);
+      void (async () => {
+        let text = insurerMessage(chatSnapshot.current.messages, "failed");
+        let connected = false;
+        if (event.data.type === "fynish-provider-connected") {
+          setBusy(true);
+          try {
+            const response = await fetch("/api/provider/session", { cache: "no-store" });
+            let session = await response.json();
+            if (!response.ok || !session.connected || session.provider !== providerLogin.provider) throw new Error("connection unavailable");
+            if (!session.selectedPolicyId && Array.isArray(session.policies) && session.policies.length === 1) {
+              const selected = await fetch("/api/provider/select", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ policyId: session.policies[0].id }) });
+              if (!selected.ok) throw new Error("policy unavailable");
+              session = await selected.json();
+            }
+            const name = providerLogin.provider === "star" ? "Star Health" : "HDFC ERGO";
+            text = insurerMessage(chatSnapshot.current.messages, session.selectedPolicyId ? "connected" : "select", name);
+            try { const profile = JSON.parse(localStorage.getItem(ONBOARDING_KEY) ?? "{}"); localStorage.setItem(ONBOARDING_KEY, JSON.stringify({ ...profile, provider: providerLogin.provider })); window.dispatchEvent(new Event("storage")); } catch { /* Connection remains valid for this session. */ }
+            connected = true;
+          } catch { text = insurerMessage(chatSnapshot.current.messages, "failed"); }
+          finally { setBusy(false); }
+        }
+        const snapshot = chatSnapshot.current;
+        if (snapshot.id !== providerLogin.chatId) return;
+        const nextMessages: Message[] = [...snapshot.messages, { id: createId(), role: "assistant", text }];
+        setMessages(nextMessages);
+        if (connected) setActiveJourneyId(""); else setProviderPrompt(true);
+        const title = parseChatHistory(readChatHistory()).find((item) => item.id === snapshot.id)?.title ?? "Insurance provider";
+        saveConversation({ id: snapshot.id, title, messages: nextMessages, ...(!connected && snapshot.journeyId ? { journeyId: snapshot.journeyId } : { journeyId: undefined }), ...(snapshot.paymentOrderId ? { paymentOrderId: snapshot.paymentOrderId } : {}) });
+      })();
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [providerLogin, saveConversation]);
+
   const send = async (raw: string) => {
     const text = raw.trim();
     if (!text || busy || listening || transcribing) return;
-    if (transactionPromptId) {
-      if (/^(yes|yeah|yep|sure|ok|okay|avunu|haa|haan|ha|हाँ|हां|అవును)[.!\s]*$/iu.test(text)) { answerTransactionPrompt(true, true); return; }
-      if (/^(no|nope|vaddu|nahi|nahiin|nahin|नहीं|వద్దు)[.!\s]*$/iu.test(text)) { answerTransactionPrompt(false, true); return; }
-      setTransactionPromptId("");
+    if (providerPrompt) {
+      const provider = insurerFromReply(text);
+      if (provider) {
+        const userMessage: Message = { id: createId(), role: "user", text };
+        const reply: Message = { id: createId(), role: "assistant", text: insurerMessage(messages, "opening", provider === "star" ? "Star Health" : "HDFC ERGO") };
+        const nextMessages = [...messages, userMessage, reply];
+        const chatId = currentChatId || createId();
+        setCurrentChatId(chatId); setMessages(nextMessages); setDraft(""); setProviderPrompt(false); setBusy(true);
+        saveConversation({ id: chatId, title: conversations.find((item) => item.id === chatId)?.title ?? "Insurance provider", messages: nextMessages, ...(activeJourneyId ? { journeyId: activeJourneyId } : {}), ...(activePaymentOrderId ? { paymentOrderId: activePaymentOrderId } : {}) });
+        try {
+          const response = await fetch("/api/provider/connect", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ provider }) });
+          const result = await response.json();
+          if (!response.ok || typeof result.url !== "string") throw new Error("connection unavailable");
+          setProviderLogin({ provider, url: result.url, chatId });
+        } catch {
+          setProviderPrompt(true);
+          const error: Message = { id: createId(), role: "assistant", text: insurerMessage(messages, "failed") };
+          const failedMessages = [...nextMessages, error];
+          setMessages(failedMessages);
+          saveConversation({ id: chatId, title: conversations.find((item) => item.id === chatId)?.title ?? "Insurance provider", messages: failedMessages, ...(activeJourneyId ? { journeyId: activeJourneyId } : {}), ...(activePaymentOrderId ? { paymentOrderId: activePaymentOrderId } : {}) });
+        } finally { setBusy(false); }
+        return;
+      }
+      if (!attachment && text.split(/\s+/u).length <= 3 && !/[?？]/u.test(text) && !/\b(what|how|why|where|tell|explain|help|ela|enti|kaise|kya)\b/iu.test(text)) {
+        const userMessage: Message = { id: createId(), role: "user", text };
+        const reply: Message = { id: createId(), role: "assistant", text: insurerMessage(messages, "unsupported") };
+        const nextMessages = [...messages, userMessage, reply];
+        setMessages(nextMessages); setDraft("");
+        saveConversation({ id: currentChatId, title: conversations.find((item) => item.id === currentChatId)?.title ?? "Insurance provider", messages: nextMessages, ...(activeJourneyId ? { journeyId: activeJourneyId } : {}), ...(activePaymentOrderId ? { paymentOrderId: activePaymentOrderId } : {}) });
+        return;
+      }
+      setProviderPrompt(false);
     }
     const userMessage: Message = { id: createId(), role: "user", text, ...(inputVoiceLanguage.current ? { voiceLanguage: inputVoiceLanguage.current } : {}), ...(attachment ? { attachment: { name: attachment.name } } : {}) };
     inputVoiceLanguage.current = null;
@@ -344,6 +458,7 @@ export default function Home() {
     const language = detectedLanguage === "en" && firstUser.voiceLanguage ? firstUser.voiceLanguage.slice(0, 2) : detectedLanguage;
     const script = language === "te" ? (/[\u0C00-\u0C7F]/u.test(firstUser.text) ? "native" : "roman") : language === "hi" ? (/[\u0900-\u097F]/u.test(firstUser.text) ? "native" : "roman") : "native";
     const history = [...messages.filter((message) => !message.failed && message.text.trim()), userMessage].slice(-12).map(({ role, text: content }) => ({ role, content: content.slice(0, 2000) }));
+    const claimQuestion = !!attachment || /\b(claim|cover|covered|policy|insurance|insurer|bill|hospital|document|receipt|reimbursement|cashless|copay|deductible|premium)\b/iu.test(text);
     setMessages((current) => [...current, userMessage, assistantMessage]);
     setDraft("");
     setVoiceError("");
@@ -352,6 +467,7 @@ export default function Home() {
     setBusy(true);
     let answer = "";
     let failed = false;
+    let reconnectRequired = false;
     let journeyId = activeJourneyId;
     let uploadError = "";
     try {
@@ -363,6 +479,7 @@ export default function Home() {
         const result = await fetch("/api/claim/analyze", { method: "POST", body: form });
         if (!result.ok) {
           const body = await result.json().catch(() => ({})) as { error?: string; code?: string };
+          reconnectRequired = body.code === "connection_expired";
           uploadError = billFailureText(result.status, typeof body.error === "string" ? body.error : "", firstUser.text, body.code);
           throw new Error("bill upload failed");
         }
@@ -376,9 +493,14 @@ export default function Home() {
       const response = await fetch("/api/assistant", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ messages: history, language, script, ...(journeyId ? { journeyId } : {}) }),
+        body: JSON.stringify({ messages: history, language, script, ...(journeyId ? { journeyId } : {}), ...(attachment ? { billAttached: true } : {}) }),
       });
-      if (!response.ok || !response.body) throw new Error("assistant unavailable");
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({})) as { code?: string };
+        if (body.code === "claim_context_unavailable") uploadError = claimContextFailureText(firstUser.text);
+        throw new Error("assistant unavailable");
+      }
+      if (!response.body) throw new Error("assistant unavailable");
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       while (true) {
@@ -389,41 +511,19 @@ export default function Home() {
       }
       answer += decoder.decode();
       if (!answer.trim()) throw new Error("empty assistant reply");
-      setMessages((current) => current.map((message) => message.id === assistantMessage.id ? { ...message, text: answer } : message));
+      setMessages((current) => current.map((message) => message.id === assistantMessage.id ? { ...message, text: answer, claimReply: !!journeyId && claimQuestion } : message));
     } catch {
       failed = true;
       answer = uploadError || failureText(firstUser.text);
       setDraft((current) => current.trim() ? current : text);
-      setMessages((current) => current.map((message) => message.id === assistantMessage.id ? { ...message, text: answer, failed: true } : message));
+      setMessages((current) => current.map((message) => message.id === assistantMessage.id ? { ...message, text: answer, failed: true, ...(reconnectRequired ? { reconnectRequired: true } : {}) } : message));
     } finally {
-      const nextMessages = [...messages, userMessage, { ...assistantMessage, text: answer, ...(failed ? { failed: true } : {}) }];
+      const nextMessages = [...messages, userMessage, { ...assistantMessage, text: answer, ...(failed ? { failed: true } : {}), ...(reconnectRequired ? { reconnectRequired: true } : {}), ...(!failed && journeyId && claimQuestion ? { claimReply: true } : {}) }];
       const title = conversations.find((item) => item.id === chatId)?.title ?? text.slice(0, 48);
       saveConversation({ id: chatId, title, messages: nextMessages, ...(activePaymentOrderId ? { paymentOrderId: activePaymentOrderId } : {}), ...(journeyId ? { journeyId } : {}) });
       setBusy(false);
     }
   };
-
-  async function openPaymentSignal(signal: PaymentSignal) {
-    if (busy) return;
-    const amount = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(signal.amountPaise / 100);
-    const chatId = createId();
-    const intro: Message = { id: createId(), role: "assistant", text: `It looks like you paid ${amount} to ${signal.hospitalName}. Would you like to check whether it may be covered? Upload a photo or PDF of your itemized bill to get started. The payment amount alone cannot establish a claim.` };
-    setCurrentChatId(chatId);
-    setActivePaymentOrderId(signal.orderId);
-    setActiveJourneyId("");
-    setInlineView(null);
-    setTransactionPromptId("");
-    setAttachment(null);
-    setMessages([intro]);
-    saveConversation({ id: chatId, title: `${signal.hospitalName} payment`, messages: [intro], paymentOrderId: signal.orderId });
-    setPaymentSignals((current) => current.filter((item) => item.orderId !== signal.orderId));
-    await fetch("/api/payment-feed", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ orderId: signal.orderId }) }).catch(() => {});
-  }
-
-  async function dismissPaymentSignal(signal: PaymentSignal) {
-    await fetch("/api/payment-feed", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ orderId: signal.orderId }) }).catch(() => {});
-    setPaymentSignals((current) => current.filter((item) => item.orderId !== signal.orderId));
-  }
 
   if (!onboarded) return null;
 
@@ -474,7 +574,7 @@ export default function Home() {
   const otherConversations = sidebarConversations.filter((item) => !item.pinned);
   const chatRow = (conversation: Conversation) => (
     <div key={conversation.id} className="flex min-w-0 items-center gap-0.5">
-      <button type="button" disabled={busy} className="sidebar-chat !w-auto min-w-0 flex-1" aria-current={conversation.id === currentChatId ? "page" : undefined} onClick={() => { setCurrentChatId(conversation.id); setActivePaymentOrderId(conversation.paymentOrderId ?? ""); setActiveJourneyId(conversation.journeyId ?? ""); setInlineView(null); setTransactionPromptId(""); setAttachment(null); setUploadMenu(false); setMessages(conversation.messages); if (menu) closeMenu(); }}>{conversation.title}</button>
+      <button type="button" disabled={busy} className="sidebar-chat !w-auto min-w-0 flex-1" aria-current={conversation.id === currentChatId ? "page" : undefined} onClick={() => { setCurrentChatId(conversation.id); setActivePaymentOrderId(conversation.paymentOrderId ?? ""); setActiveJourneyId(conversation.journeyId ?? ""); setInlineView(null); setProviderPrompt(false); setAttachment(null); setUploadMenu(false); setMessages(conversation.messages); if (menu) closeMenu(); }}>{conversation.title}</button>
       <button type="button" onClick={() => toggleChatFlag(conversation.id, "pinned")} aria-pressed={!!conversation.pinned} aria-label={`${conversation.pinned ? "Unpin" : "Pin"} ${conversation.title}`} title={conversation.pinned ? "Unpin chat" : "Pin chat"} className={`grid size-8 shrink-0 place-items-center rounded-lg hover:bg-white focus-visible:outline-2 focus-visible:outline-blue ${conversation.pinned ? "text-blue" : "text-ink-3"}`}><svg aria-hidden="true" viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m9 3 6 0-1 5 3 3v2H7v-2l3-3-1-5ZM12 13v8" /></svg></button>
       <button type="button" onClick={() => toggleChatFlag(conversation.id, "saved")} aria-pressed={!!conversation.saved} aria-label={`${conversation.saved ? "Remove from saved chats" : "Save chat"}: ${conversation.title}`} title={conversation.saved ? "Remove from saved chats" : "Save chat"} className={`grid size-8 shrink-0 place-items-center rounded-lg hover:bg-white focus-visible:outline-2 focus-visible:outline-blue ${conversation.saved ? "text-blue" : "text-ink-3"}`}><svg aria-hidden="true" viewBox="0 0 24 24" className="size-4" fill={conversation.saved ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M6 3h12v18l-6-4-6 4V3Z" /></svg></button>
     </div>
@@ -482,6 +582,12 @@ export default function Home() {
 
   return (
     <div className="app-shell">
+      {providerLogin && <div className="fixed inset-0 z-50 grid place-items-center bg-ink/55 p-3 sm:p-6" onMouseDown={(event) => { if (event.target === event.currentTarget) { setProviderLogin(null); setProviderPrompt(true); } }} onKeyDown={(event) => { if (event.key === "Escape") { setProviderLogin(null); setProviderPrompt(true); } }}>
+        <section role="dialog" aria-modal="true" aria-labelledby="chat-provider-title" className="flex h-[min(760px,94dvh)] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-card shadow-2xl">
+          <div className="flex items-center justify-between border-b border-line px-4 py-3"><div><h2 id="chat-provider-title" className="font-bold">Sign in to {providerLogin.provider === "star" ? "Star Health" : "HDFC ERGO"}</h2><p className="text-xs text-ink-3">Fynish account simulation</p></div><button type="button" aria-label="Close sign-in" onClick={() => { setProviderLogin(null); setProviderPrompt(true); }} className="grid size-9 place-items-center rounded-full text-xl text-ink-2 hover:bg-cream">×</button></div>
+          <iframe ref={providerFrame} title="Insurance account simulation" src={providerLogin.url} className="min-h-0 w-full flex-1 border-0 bg-white" />
+        </section>
+      </div>}
       {menu && <button aria-label="Close menu" className="fixed inset-0 z-20 bg-ink/40 md:hidden" onClick={closeMenu} />}
       <aside id="app-sidebar" className={`app-sidebar ${menu ? "is-open" : ""}`}>
         <div className="sidebar-brand"><Wordmark className="text-3xl" /><button ref={closeButton} type="button" aria-label="Close menu" onClick={closeMenu} className="sidebar-close"><svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M5 5l14 14M19 5L5 19" /></svg></button></div>
@@ -514,12 +620,10 @@ export default function Home() {
           </button>
           <span className="md:hidden"><Wordmark className="text-2xl" /></span>
           <div className="chat-header-title">Insurance &amp; claims</div>
+          <TransactionNotifications onOpenTransaction={(payment) => { if (busy) setPendingNotification(payment); else beginPaymentChat(payment.hospitalName, payment.amountPaise, payment.orderId); }} />
         </header>
 
-        {paymentConnected && paymentSignals.filter((signal) => signal.isHospital && !signal.seen).map((signal) => <section key={signal.orderId} role="status" className="relative z-10 mx-auto mt-2 flex w-[min(760px,calc(100%-32px))] flex-wrap items-center justify-between gap-4 rounded-2xl border border-green/20 bg-green-tint px-4 py-4 text-left sm:px-5">
-          <div><p className="text-sm font-extrabold text-green">Possible hospital payment found</p><p className="mt-1 text-sm text-ink-2">It looks like you paid {signal.hospitalName}. Would you like to check whether it may be covered?</p><p className="mt-1 text-xs text-ink-2">{new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 2 }).format(signal.amountPaise / 100)} · Simulation payment</p></div>
-          <div className="flex items-center gap-3"><button type="button" disabled={busy} onClick={() => void openPaymentSignal(signal)} className="rounded-lg bg-green px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">Check claim</button><button type="button" onClick={() => void dismissPaymentSignal(signal)} className="text-xs font-semibold text-ink-2 underline underline-offset-2">Dismiss</button></div>
-        </section>)}
+        {pendingNotification && <p role="status" className="relative z-10 mx-auto rounded-xl bg-white px-4 py-2 text-sm text-ink-2">Opening the payment chat after this reply finishes…</p>}
 
         {messages.length === 0 ? (
           <section className="chat-empty animate-fade-up">
@@ -548,13 +652,13 @@ export default function Home() {
                 ) : (
                   <div key={message.id} className="agent-message animate-fade-up">
                     <span className="agent-avatar"><Mark size={30} /></span>
-                    <div><p className="agent-name">Fynish</p><p className="agent-copy whitespace-pre-wrap">{message.text ? <MessageText text={message.text} /> : busy ? thinkingLabel(messages.filter((item) => item.role === "user").at(-1)?.text ?? "") : failureText("")}</p>{message.id === transactionPromptId && <div className="mt-3 flex gap-2" role="group" aria-label="Payment alerts setup"><button type="button" onClick={() => answerTransactionPrompt(true)} className="rounded-xl bg-blue px-4 py-2 text-sm font-bold text-white">{transactionCopy(messages).yes}</button><button type="button" onClick={() => answerTransactionPrompt(false)} className="rounded-xl border border-line bg-white px-4 py-2 text-sm font-bold text-ink">{transactionCopy(messages).no}</button></div>}{message.text && !(busy && index === messages.length - 1) && <VoicePlayback text={message.text} language={voiceLanguageFor(messages, index)} />}</div>
+                    <div><p className="agent-name">Fynish</p><p className="agent-copy whitespace-pre-wrap">{message.text ? <MessageText text={message.text} /> : busy ? thinkingLabel(messages.filter((item) => item.role === "user").at(-1)?.text ?? "") : failureText("")}</p>{(message.reconnectRequired || /insurance session (?:has )?expired|insurance session expire|insurance connection expired/i.test(message.text)) && !busy && <button type="button" onClick={() => openInline("provider")} className="mt-3 rounded-full border border-blue px-4 py-2 text-sm font-semibold text-blue hover:bg-blue-tint">{reconnectLabel(message.text)}</button>}{message.text && !(busy && index === messages.length - 1) && <VoicePlayback text={message.text} language={voiceLanguageFor(messages, index)} />}{message.claimReply && index === messages.length - 1 && !busy && <div className="mt-3 flex flex-wrap gap-2" aria-label="Suggested follow-up questions">{claimSuggestions(messages).map((suggestion) => <button type="button" key={suggestion} onClick={() => void send(suggestion)} className="rounded-full border border-line bg-white px-3 py-2 text-left text-xs font-semibold text-ink-2 hover:border-blue hover:text-blue">{suggestion}</button>)}</div>}</div>
                   </div>
                 ))}
                 {inlineView && <div className="agent-message animate-fade-up">
                   <span className="agent-avatar"><Mark size={30} /></span>
                   <div className="min-w-0 flex-1"><div className="mb-3 flex items-center justify-between gap-3"><p className="agent-name">Fynish</p><button type="button" onClick={() => setInlineView(null)} className="text-sm font-semibold text-ink-2 underline">Close</button></div>
-                    {inlineView === "transactions" ? <TransactionHistory embedded onCheckPayment={(signal) => void openPaymentSignal({ ...signal, method: null, seen: true, isHospital: true })} /> : inlineView === "account" ? <AccountSettings onChangeProvider={() => openInline("provider")} onManagePayments={() => openInline("transactions")} /> : <ClaimFlow key={`${inlineView}-${currentChatId}`} embedded changeProvider onAssessment={(journeyId) => { const snapshot = chatSnapshot.current; if (snapshot.id !== currentChatId) return; snapshot.journeyId = journeyId; setActiveJourneyId(journeyId); setInlineView(null); const title = parseChatHistory(readChatHistory()).find((item) => item.id === currentChatId)?.title ?? "Claim review"; saveConversation({ id: currentChatId, title, messages: snapshot.messages, ...(journeyId ? { journeyId } : {}), ...(snapshot.paymentOrderId ? { paymentOrderId: snapshot.paymentOrderId } : {}) }); }} />}
+                    <AccountSettings onChangeProvider={() => openInline("provider")} onManagePayments={() => openInline("transactions")} />
                   </div>
                 </div>}
                 <div ref={messagesEnd} />

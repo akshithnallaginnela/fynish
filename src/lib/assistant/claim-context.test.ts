@@ -33,8 +33,25 @@ describe("claim context", () => {
     });
     expect(context).toContain('"billTotalRupees":42000');
     expect(context).toContain('"estimatedPayableRupees":null');
+    expect(context).toContain('"projectedRemainingCoverRupees":null');
     expect(context).toContain("Receipt missing");
     expect(context).not.toContain("Private Person");
     expect(formatClaimContext({})).toBeNull();
+  });
+
+  it("calculates projected remaining cover only from an available estimate and balance", () => {
+    const context = formatClaimContext({
+      state: "scoring",
+      extracted: { bill: { hospitalName: "Hospital", totalAmountPaise: 4200000, admissionDate: "2026-11-01", dischargeDate: "2026-11-02" } },
+      assessment: {
+        readiness: { score: 80, readyToSubmit: true, breakdown: [] },
+        amountSummary: { claimedAmountPaise: 4200000, estimatedPayablePaise: 3500000, items: [] },
+        warnings: [], policySnapshot: { product: "Plan", sumInsuredPaise: 50000000, remainingBalancePaise: 10000000 },
+      },
+    });
+    expect(context).toContain('"policyCoverRupees":500000');
+    expect(context).toContain('"estimatedPayableRupees":35000');
+    expect(context).toContain('"currentRemainingCoverRupees":100000');
+    expect(context).toContain('"projectedRemainingCoverRupees":65000');
   });
 });

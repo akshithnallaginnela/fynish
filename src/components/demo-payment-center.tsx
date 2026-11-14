@@ -1,17 +1,14 @@
 "use client";
 
-import { useState, useSyncExternalStore } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import Wordmark from "@/components/wordmark";
 import { DEMO_MERCHANTS, type DemoMerchantId } from "@/lib/payment-merchants";
-import { ONBOARDING_KEY } from "@/lib/onboarding";
 import "./payment-portal.css";
 
 type CheckoutReply = { razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string };
 type CheckoutOptions = { key: string; amount: number; currency: string; name: string; description: string; order_id: string; handler: (reply: CheckoutReply) => void; modal: { ondismiss: () => void } };
 type CheckoutWindow = Window & { Razorpay?: new (options: CheckoutOptions) => { open(): void } };
-const subscribe = (callback: () => void) => { window.addEventListener("storage", callback); return () => window.removeEventListener("storage", callback); };
-const profileSnapshot = () => { try { return localStorage.getItem(ONBOARDING_KEY); } catch { return null; } };
 
 function loadCheckout() {
   return new Promise<void>((resolve, reject) => {
@@ -27,16 +24,22 @@ function loadCheckout() {
 }
 
 export default function DemoPaymentCenter() {
-  const savedProfile = useSyncExternalStore(subscribe, profileSnapshot, () => null);
+  const [connected, setConnected] = useState<boolean | null>(null);
   const [merchantId, setMerchantId] = useState<DemoMerchantId>("hospital");
   const [busy, setBusy] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [notice, setNotice] = useState("");
   const [paid, setPaid] = useState(false);
   const [pendingReply, setPendingReply] = useState<CheckoutReply | null>(null);
-  let connected = false;
-  try { connected = JSON.parse(savedProfile ?? "null")?.bankConnected === "true"; } catch { /* start with connection disabled */ }
   const merchant = DEMO_MERCHANTS[merchantId];
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/bank/session", { cache: "no-store" }).then((response) => response.ok ? response.json() : null)
+      .then((session) => { if (active) setConnected(session?.connected === true); })
+      .catch(() => { if (active) setConnected(false); });
+    return () => { active = false; };
+  }, []);
 
   async function verifyPayment(reply: CheckoutReply) {
     setBusy(true); setVerifying(true); setNotice("");
@@ -79,7 +82,7 @@ export default function DemoPaymentCenter() {
     <header className="payment-header"><Link href="/"><Wordmark className="text-3xl" /></Link><Link href="/transactions">Transaction history ↗</Link></header>
     <section className="payment-content merchant-content">
       <div className="merchant-intro"><div><p className="payment-eyebrow">MERCHANT PAYMENTS</p><h1>Make a payment</h1><p className="payment-lead">Choose a merchant and continue to Razorpay checkout.</p></div><span className="merchant-mode">Simulation</span></div>
-      {!connected ? <div className="payment-card"><h2>Enable payment alerts first</h2><p>Turn on checkout alerts in transaction history to continue.</p><Link className="payment-button" href="/transactions">Open transaction history <span>→</span></Link></div> :
+      {connected === null ? <div className="payment-card" role="status">Checking the bank connection…</div> : !connected ? <div className="payment-card"><h2>Connect your bank first</h2><p>Connect the simulated bank account in transaction history before starting a test payment.</p><Link className="payment-button" href="/transactions">Open transaction history <span>→</span></Link></div> :
         <div className="merchant-layout">
           <div className="payment-card merchant-selection">
             <div className="merchant-section-heading"><div><p className="merchant-step">01 / MERCHANT</p><h2>Who are you paying?</h2><p>Select a merchant to see the payment details.</p></div></div>

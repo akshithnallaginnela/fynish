@@ -3,13 +3,17 @@ import { z } from "zod";
 import { setSimulatedBankCookie, simulatedBankAccount } from "@/lib/bank/simulation";
 import { sameOrigin } from "@/lib/provider/origin";
 import { readSessionId, sessionIdFor, setSessionCookie } from "@/lib/provider/session";
+import { sampleBankLogin } from "@/lib/bank/sample-login";
 
-const Body = z.object({ consent: z.literal(true), accountId: z.literal("fynish-sample-1") }).strict();
+const Body = z.object({ consent: z.literal(true), accountId: z.literal("fynish-sample-1"), identifier: z.string().max(32), accessCode: z.string().max(32) }).strict();
 
 export async function POST(request: Request) {
   if (!sameOrigin(request)) return NextResponse.json({ error: "invalid_origin" }, { status: 403 });
   try {
-    Body.parse(await request.json());
+    const body = Body.parse(await request.json());
+    if (body.identifier !== sampleBankLogin.identifier || body.accessCode !== sampleBankLogin.accessCode) {
+      return NextResponse.json({ error: "Use the prefilled sample login details." }, { status: 401 });
+    }
     const existingSession = readSessionId(request);
     const sessionId = existingSession ?? sessionIdFor(request);
     const response = NextResponse.json({ connected: true, source: "simulation", account: simulatedBankAccount }, { headers: { "Cache-Control": "no-store" } });

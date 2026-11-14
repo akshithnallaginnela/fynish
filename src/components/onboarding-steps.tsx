@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Mark from "@/components/mark";
 import Wordmark from "@/components/wordmark";
+import SimulatedBankConnect, { type BankSession } from "@/components/simulated-bank-connect";
 import "./onboarding-steps.css";
 
 type Provider = "star" | "hdfc-ergo";
@@ -11,6 +12,12 @@ const providers: Array<{ id: Provider; name: string; detail: string }> = [
   { id: "star", name: "Star Health", detail: "Connect your Star Health policy" },
   { id: "hdfc-ergo", name: "HDFC ERGO", detail: "Connect your HDFC ERGO policy" },
 ];
+function providerFromText(value: string): Provider | "" {
+  const text = value.toLowerCase().replace(/[^a-z]/g, "");
+  if (text === "star" || text === "starhealth" || text === "starhealthinsurance") return "star";
+  if (text === "hdfc" || text === "hdfcergo" || text === "hdfcergoinsurance") return "hdfc-ergo";
+  return "";
+}
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, { credentials: "same-origin", ...init });
@@ -26,15 +33,23 @@ export default function OnboardingSteps({ onComplete, onBack }: {
   const [step, setStep] = useState<0 | 1 | 2>(0);
   const [name, setName] = useState("");
   const [provider, setProvider] = useState<Provider | "">("");
+  const [providerInput, setProviderInput] = useState("");
   const [providerSession, setProviderSession] = useState<ProviderSession | null>(null);
   const [providerLoginUrl, setProviderLoginUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [bankConnected, setBankConnected] = useState(false);
+  const [bankSession, setBankSession] = useState<BankSession | null>(null);
   const [bankPopupOpen, setBankPopupOpen] = useState(false);
-  const [consented, setConsented] = useState(false);
   const loginFrame = useRef<HTMLIFrameElement>(null);
   const selectedProvider = providers.find((item) => item.id === provider);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/bank/session", { cache: "no-store" }).then((response) => response.ok ? response.json() : null)
+      .then((session) => { if (active) setBankSession(session ?? { connected: false, source: "simulation" }); })
+      .catch(() => { if (active) setBankSession({ connected: false, source: "simulation" }); });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -99,18 +114,12 @@ export default function OnboardingSteps({ onComplete, onBack }: {
 
   const closeBankPopup = () => {
     setBankPopupOpen(false);
-    setConsented(false);
-  };
-  const authorizeBank = () => {
-    if (!consented) return;
-    setBankConnected(true);
-    closeBankPopup();
   };
   const goForward = () => {
     if (step === 0 && name.trim()) setStep(1);
     else if (step === 1 && providerSession?.connected) setStep(2);
     else if (step === 1) void connectProvider();
-    else if (bankConnected) finish(true);
+    else if (bankSession?.connected) finish(false);
     else setBankPopupOpen(true);
   };
   const goBack = () => {
@@ -120,7 +129,7 @@ export default function OnboardingSteps({ onComplete, onBack }: {
   };
   const continueLabel = step === 0 ? "Continue" : step === 1
     ? providerSession?.connected ? "Continue" : "Connect insurer"
-    : bankConnected ? "Finish setup" : "Enable payment alerts";
+    : bankSession?.connected ? "Finish setup" : "Connect bank";
 
   return (
     <main className="onboarding-page">
@@ -155,40 +164,34 @@ export default function OnboardingSteps({ onComplete, onBack }: {
             <div className="onboarding-assistant"><span className="onboarding-mark"><Mark size={38} /></span><span>Welcome, {name.trim()}</span></div>
             <p className="onboarding-eyebrow">Your health cover</p>
             <h1>Who is your insurer?</h1>
-            <p className="onboarding-description">Choose your insurer and continue to its account simulation.</p>
-            <fieldset className="onboarding-options">
-              <legend className="onboarding-srOnly">Select an insurance provider</legend>
-              {providers.map((item) => <label key={item.id} className={"onboarding-option " + (provider === item.id ? "onboarding-selected" : "")}>
-                <input type="radio" name="provider" value={item.id} checked={provider === item.id} disabled={!!providerSession?.connected} onChange={() => { setProvider(item.id); setError(""); }} />
-                <span className="onboarding-optionIcon" aria-hidden="true">▤</span>
-                <span className="onboarding-optionText"><strong>{item.name}</strong><span>{item.detail}</span></span>
-                <span className="onboarding-check" aria-hidden="true">{provider === item.id ? "✓" : ""}</span>
-              </label>)}
-            </fieldset>
+            <p className="onboarding-description">Type your insurer’s name to continue to its account simulation.</p>
+            <label className="mt-7 block text-sm font-bold" htmlFor="insurance-provider">Insurance provider</label>
+            <input id="insurance-provider" autoComplete="off" maxLength={80} value={providerInput} disabled={!!providerSession?.connected} onChange={(event) => { const value = event.target.value; setProviderInput(value); setProvider(providerFromText(value)); setError(""); }} className="mt-2 min-h-14 w-full rounded-xl border-2 border-line bg-white px-4 text-lg outline-none transition focus:border-blue disabled:opacity-60" placeholder="e.g. Star Health or HDFC ERGO" aria-describedby="insurance-provider-help" />
+            <p id="insurance-provider-help" className="mt-2 text-xs leading-5 text-ink-3">{provider ? `Ready to connect ${selectedProvider?.name}.` : "Type Star Health or HDFC ERGO to connect."}</p>
             {providerSession?.connected && <p className="onboarding-connected-note" role="status">Connected to {selectedProvider?.name}{providerSession.account?.name ? " as " + providerSession.account.name : ""}.</p>}
             {error && <p className="onboarding-error" role="alert">{error}</p>}
           </section>
         ) : (
           <section key="payments" className="onboarding-question">
             <div className="onboarding-assistant"><span className="onboarding-mark"><Mark size={38} /></span><span>One more choice</span></div>
-            <p className="onboarding-eyebrow">Payment alerts · optional</p>
-            <h1>Connect payment alerts?</h1>
-            <p className="onboarding-description">A hospital payment can start a claim check. You will still need to upload the bill.</p>
-            <div className={"onboarding-bank-card " + (bankConnected ? "is-connected" : "")}>
+            <p className="onboarding-eyebrow">Bank account · optional</p>
+            <h1>Connect your bank?</h1>
+            <p className="onboarding-description">Connect your account to see transactions that may be related to a claim.</p>
+            <div className={"onboarding-bank-card " + (bankSession?.connected ? "is-connected" : "")}>
               <span className="onboarding-bank-icon" aria-hidden="true">₹</span>
-              <span><strong>{bankConnected ? "Payment alerts enabled" : "Enable payment alerts"}</strong><small>{bankConnected ? "Fynish checkout payments only" : "No bank or UPI account linked"}</small></span>
-              <span className="onboarding-bank-status" aria-hidden="true">{bankConnected ? "✓" : "○"}</span>
+              <span><strong>{bankSession?.connected ? "Account connected" : "Connect your bank"}</strong><small>Simulated connection</small></span>
+              <span className="onboarding-bank-status" aria-hidden="true">{bankSession?.connected ? "✓" : "○"}</span>
             </div>
-            {bankConnected && <p className="onboarding-connected-note" role="status">Alerts are enabled for payments made through Fynish checkout.</p>}
-            <p className="onboarding-description">Fynish does not access bank transactions or UPI history.</p>
+            {bankSession?.connected && <p className="onboarding-connected-note" role="status">Your simulated account is connected.</p>}
+            <p className="onboarding-description">No real bank or UPI account is accessed.</p>
           </section>
         )}
       </div>
       <footer className="onboarding-footer">
         <div className="onboarding-footerInner">
-          <p>{step === 2 ? "You can skip this and enable alerts later." : "Fynish simulation · use the prefilled account only."}</p>
+          <p>{step === 2 ? "You can skip this and connect later from transaction history." : "Fynish simulation · use the prefilled account only."}</p>
           <div className="onboarding-footerActions">
-            {step === 2 && !bankConnected && <button type="button" className="onboarding-skip" onClick={() => finish(false)}>Do this later</button>}
+            {step === 2 && !bankSession?.connected && <button type="button" className="onboarding-skip" onClick={() => finish(false)}>Do this later</button>}
             <button type="button" className="onboarding-continue" disabled={busy || (step === 0 ? !name.trim() : step === 1 ? !provider : false)} onClick={goForward}>{busy ? "Connecting…" : continueLabel}<span aria-hidden="true">→</span></button>
           </div>
         </div>
@@ -203,10 +206,8 @@ export default function OnboardingSteps({ onComplete, onBack }: {
 
       {bankPopupOpen && <div className="onboarding-modalBackdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) closeBankPopup(); }} onKeyDown={(event) => { if (event.key === "Escape") closeBankPopup(); }}>
         <section role="dialog" aria-modal="true" aria-labelledby="onboarding-bank-title" className="onboarding-bankModal">
-          <header><div><p>FYNISH SIMULATION</p><h2 id="onboarding-bank-title">Enable payment alerts</h2></div><button type="button" onClick={closeBankPopup} aria-label="Close payment alerts">×</button></header>
-          <p>This only enables alerts for payments made through Fynish checkout. It does not connect a bank account or read UPI history.</p>
-          <label className="onboarding-consent"><input type="checkbox" checked={consented} onChange={(event) => setConsented(event.target.checked)} /><span>I understand and agree to use simulated checkout payment alerts.</span></label>
-          <button type="button" className="onboarding-continue onboarding-modalButton" disabled={!consented} onClick={authorizeBank}>Enable payment alerts <span aria-hidden="true">→</span></button>
+          <header><div><p>SIMULATED CONNECTION</p><h2 id="onboarding-bank-title">Connect your account</h2></div><button type="button" onClick={closeBankPopup} aria-label="Close account connection">×</button></header>
+          <SimulatedBankConnect session={bankSession} onChange={(session) => { setBankSession(session); if (session.connected) closeBankPopup(); }} />
         </section>
       </div>}
     </main>

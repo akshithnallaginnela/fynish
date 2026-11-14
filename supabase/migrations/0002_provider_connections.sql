@@ -7,6 +7,7 @@ create table provider_connections (
   scope text not null,
   expires_at timestamptz not null,
   selected_policy_id text,
+  
   policy_snapshot jsonb,
   balance_snapshot jsonb,
   revoked_at timestamptz,

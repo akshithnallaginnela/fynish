@@ -63,8 +63,8 @@
 .onboarding-providerModal header p { margin-top: 3px; color: var(--ink-2); font-size: 12px; }
 .onboarding-providerModal header button, .onboarding-bankModal header button { display: grid; width: 36px; height: 36px; flex: none; place-items: center; border: 1px solid #dedbce; border-radius: 10px; font-size: 23px; line-height: 1; }
 .onboarding-providerModal iframe { width: 100%; min-height: 0; flex: 1; border: 0; background: white; }
-.onboarding-bankModal { max-height: 92dvh; overflow-y: auto; padding: 22px; }
-.onboarding-bankModal header { padding: 0; }
+.onboarding-bankModal { width: min(100%, 720px); max-height: 92dvh; overflow-y: auto; padding: 0; }
+.onboarding-bankModal header { padding: 16px 20px; }
 .onboarding-bankModal header p { margin-bottom: 6px; color: var(--blue); font-size: 11px; font-weight: 750; letter-spacing: .08em; }
 .onboarding-bankModal > p { margin: 20px 0; color: var(--ink-2); font-size: 14px; line-height: 1.6; }
 .onboarding-bankModal > label:not(.onboarding-consent) { display: block; font-size: 13px; font-weight: 700; }

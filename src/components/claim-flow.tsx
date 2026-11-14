@@ -313,7 +313,7 @@ export default function ClaimFlow({ embedded = false, paymentOrderId: suppliedPa
           {(!embedded || (session?.selectedPolicy && !changeProviderRequested)) && <Step embedded={embedded} number={3} title="Upload your bill">
             {!session?.selectedPolicy ? <p className="text-sm text-ink-3">Choose a policy first. Then add the hospital bill.</p> : (
               <>
-                {paymentSignal && <div className="mb-4 rounded-xl border border-blue/15 bg-blue-tint p-4 text-sm"><strong className="text-blue">Hospital payment found</strong><p className="mt-1 text-ink-2">{paymentSignal.hospitalName} · {rupees(paymentSignal.amountPaise)}{paymentSignal.paidAt ? ` · ${new Date(paymentSignal.paidAt).toLocaleString("en-IN")}` : ""}</p><p className="mt-1 text-xs text-ink-3">Attach the itemised bill so Fynish can check whether the payment matches the claim.</p></div>}
+                {paymentSignal && <div className="mb-4 rounded-xl border border-blue/15 bg-blue-tint p-4 text-sm"><strong className="text-blue">Selected payment</strong><p className="mt-1 text-ink-2">{paymentSignal.hospitalName} · {rupees(paymentSignal.amountPaise)}{paymentSignal.paidAt ? ` · ${new Date(paymentSignal.paidAt).toLocaleString("en-IN")}` : ""}</p><p className="mt-1 text-xs text-ink-3">Attach the itemised bill so Fynish can check whether the payment relates to this claim.</p></div>}
                 <p className="mb-4 text-sm leading-6 text-ink-2">Add a clear photo or PDF. Use sample or anonymized documents. A discharge summary helps check dates and diagnosis.</p>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <label className="cursor-pointer rounded-xl border border-dashed border-line bg-white p-4 hover:border-blue">

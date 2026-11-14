@@ -26,8 +26,11 @@ export async function razorpayRequest(path: string, init?: RequestInit) {
       cache: "no-store",
       signal: AbortSignal.timeout(10_000),
     });
-  } catch {
-    throw new RazorpayError(502, "Payment service did not respond. Try again.");
+  } catch (error) {
+    if (error && typeof error === "object" && "name" in error && error.name === "TimeoutError") {
+      throw new RazorpayError(504, "The payment provider took too long to respond. Please try again.");
+    }
+    throw new RazorpayError(502, "Cannot reach the payment provider. Check the server's internet access and try again.");
   }
   const body = await response.json().catch(() => null);
   if (!response.ok) {
