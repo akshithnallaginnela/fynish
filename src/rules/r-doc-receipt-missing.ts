@@ -9,5 +9,5 @@ export default rule({
   check: (ctx) =>
     ctx.extracted.receipt
       ? "pass"
-      : { reason: "The payment receipt is missing.", whatToDo: "Send the payment receipt — the UPI confirmation works." },
+      : { reason: "The payment receipt is missing.", whatToDo: "Send a payment receipt from the hospital." },
 });

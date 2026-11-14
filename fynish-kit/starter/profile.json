@@ -1,0 +1,78 @@
+{
+  "_note": "Reference policy profile for the demo. Clause refs and pages are from the Star Health Family Health Optima 2026 Customer Information Sheet (public document). Demo policy values are SYNTHETIC TEST CASE — NOT A REAL POLICY.",
+  "id": "pol_fho_2026",
+  "insurer": "Star Health and Allied Insurance Co. Ltd.",
+  "product": "Family Health Optima Insurance Plan",
+  "uin": "SHAHLIP26046V092526",
+  "wordingVersion": "CIS / FHO / V.6 / 2026",
+  "sourceDocument": "seed/policy/star-fho-2026-cis.pdf",
+  "sourceUrl": "https://d28c6jni2fmamz.cloudfront.net/CIS_Family_Health_Optima_Insurance_Plan_V_2_b5d9cdf635.pdf",
+
+  "demoPolicy": {
+    "policyNumberMasked": "P/XXXXXX/01/2026/004471",
+    "sumInsuredPaise": 50000000,
+    "policyStart": "2025-09-01",
+    "continuousCoverSince": "2025-09-01",
+    "insuredAgeAtEntry": 34,
+    "voluntaryCopayPct": 0
+  },
+
+  "roomEntitlement": {
+    "bySumInsuredPaise": [
+      { "upToPaise": 50000000, "category": "SINGLE_STANDARD_AC", "label": "Single Standard A/C Room" }
+    ],
+    "categoryRank": { "GENERAL_WARD": 0, "SHARED": 1, "SINGLE_STANDARD_AC": 2, "SINGLE_PRIVATE": 3, "DELUXE": 4, "SUITE": 5 },
+    "clauseRef": "II(1)(i)",
+    "page": 9,
+    "note": "Associated medical expenses considered proportionately to eligible room category. Not a flat daily cap."
+  },
+
+  "waitingPeriods": {
+    "initialDays": { "days": 30, "clauseRef": "III(3) / Excl 03", "page": 7, "accidentExempt": true },
+    "specifiedDiseaseMonths": { "months": 24, "clauseRef": "III(2) / Excl 02", "page": 7 },
+    "preExistingMonths": { "months": 36, "clauseRef": "III(1) / Excl 01", "page": 8, "autoEvaluate": false }
+  },
+
+  "specifiedDiseases": {
+    "_note": "Fill from the published list on CIS pages 7–8 before the demo. Match on diagnosis or procedure text, case-insensitive, after normalisation.",
+    "codes": [
+      { "code": "HERNIA", "match": ["hernia", "herniorrhaphy", "hernioplasty"], "label": "Hernia" },
+      { "code": "JOINT_REPLACEMENT", "match": ["joint replacement", "arthroplasty"], "label": "Joint replacement" }
+    ]
+  },
+
+  "copay": {
+    "mandatoryAgeAtEntry": 61,
+    "mandatoryPct": 20,
+    "clauseRef": "II(28), II(30)",
+    "page": 12
+  },
+
+  "claimsProcedure": {
+    "emergencyNotifyWithinHours": 24,
+    "plannedNotifyBeforeHours": 48,
+    "reimbursementSubmitWithinDays": 15,
+    "postHospitalisationDays": 90,
+    "clauseRef": "IV(2)(B)(C)(D)",
+    "pages": [12, 13]
+  },
+
+  "documentChecklist": {
+    "_source": "IRDAI standard claim form Part A, sections E–F (SBI General copy)",
+    "required": ["hospital_bill", "payment_receipt", "discharge_summary"],
+    "optional": ["pharmacy_bills", "investigation_reports", "prescriptions", "bill_schedule"]
+  },
+
+  "claimFormPartA": {
+    "_source": "IRDAI standard claim form Part A, sections A–G",
+    "sections": {
+      "A": "Primary insured",
+      "B": "Insurance history",
+      "C": "Insured person hospitalised",
+      "D": "Hospitalisation details",
+      "E": "Claim details and amounts",
+      "F": "Bills enclosed",
+      "G": "Payee / bank details"
+    }
+  }
+}

@@ -1,0 +1,47 @@
+[
+  {
+    "id": "txn_001",
+    "ts": "2026-11-11T09:12:00+05:30",
+    "customerId": "cust_ravi",
+    "amountPaise": 64000,
+    "merchantName": "Ratnadeep Supermarket",
+    "merchantCategory": "GROCERY",
+    "upiRef": "UPI2611110912A1"
+  },
+  {
+    "id": "txn_002",
+    "ts": "2026-11-11T13:05:00+05:30",
+    "customerId": "cust_ravi",
+    "amountPaise": 180000,
+    "merchantName": "HP Petrol Pump Kukatpally",
+    "merchantCategory": "FUEL",
+    "upiRef": "UPI2611111305B7"
+  },
+  {
+    "id": "txn_003",
+    "ts": "2026-11-11T18:42:00+05:30",
+    "customerId": "cust_ravi",
+    "amountPaise": 4200000,
+    "merchantName": "Apollo Hospitals Jubilee Hills",
+    "merchantCategory": "HOSPITAL",
+    "upiRef": "UPI2611111842C3"
+  },
+  {
+    "id": "txn_004",
+    "ts": "2026-11-11T19:10:00+05:30",
+    "customerId": "cust_ravi",
+    "amountPaise": 86000,
+    "merchantName": "Apollo Pharmacy",
+    "merchantCategory": "PHARMACY",
+    "upiRef": "UPI2611111910D9"
+  },
+  {
+    "id": "txn_005",
+    "ts": "2026-11-12T08:30:00+05:30",
+    "customerId": "cust_meena",
+    "amountPaise": 350000,
+    "merchantName": "City Clinic Begumpet",
+    "merchantCategory": "CLINIC",
+    "upiRef": "UPI2611120830E2"
+  }
+]

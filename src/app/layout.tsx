@@ -1,16 +1,11 @@
-import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+﻿import type { Metadata } from "next";
+import { Anton, DM_Sans } from "next/font/google";
+import LocalOrigin from "@/components/local-origin";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+// Anton matches the tall condensed wordmark in the logo; DM Sans carries body text.
+const anton = Anton({ variable: "--font-anton", weight: "400", subsets: ["latin"] });
+const dmSans = DM_Sans({ variable: "--font-dm-sans", subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "Fynish",
@@ -19,11 +14,9 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html
-      lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-    >
-      <body className="min-h-full flex flex-col">{children}</body>
+    <html lang="en" className={`${anton.variable} ${dmSans.variable} h-full antialiased`}>
+      <body suppressHydrationWarning className="flex min-h-full flex-col"><LocalOrigin />{children}</body>
     </html>
   );
 }
+

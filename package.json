@@ -3,11 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --hostname 127.0.0.1",
     "build": "next build",
-    "start": "next start",
+    "start": "next start --hostname 127.0.0.1",
     "lint": "eslint",
     "test": "vitest run --passWithNoTests",
+    "test:providers": "node --test provider-mocks/star-health/server.test.mjs provider-mocks/hdfc-ergo/server.test.mjs",
+    "provider:star": "node provider-mocks/star-health/server.mjs",
+    "provider:hdfc": "node provider-mocks/hdfc-ergo/server.mjs",
     "db:smoke": "tsx --env-file=.env scripts/db-smoke.mts",
     "seed:policy": "tsx --env-file=.env scripts/seed-policy.mts"
   },
